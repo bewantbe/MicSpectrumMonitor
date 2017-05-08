@@ -13,6 +13,9 @@ import threading
 
 import numpy as np
 
+#######################################################################
+# Recorder thread
+
 # global variable that pass sample data from recorder to plot
 sample_d = np.array([0])
 
@@ -23,7 +26,7 @@ sample_d = np.array([0])
 # arecord --list-devices
 # use `arecord -L` to list recording devices
 
-threadLock = threading.Lock()
+lock_sample_d = threading.Lock()
 
 class recThread(threading.Thread):
     def __init__(self, name, device, n_channels=1, sample_rate=44100, periodsize=160, format=alsaaudio.PCM_FORMAT_S16_LE):
@@ -57,25 +60,21 @@ class recThread(threading.Thread):
             if l == 0:
                 continue
             if l < 0:
-                print("recorder overrun, samples are lost.")
+                print("recorder overrun at t = %.3f sec, some samples are lost." % (time.time()))
                 continue
-            threadLock.acquire()
+            b = bytearray(data)
+            lock_sample_d.acquire()
             if self.format == alsaaudio.PCM_FORMAT_S16_LE:
-                sample_s = struct.unpack_from('%dh'%(len(data)/2/self.n_channels), bytearray(data))
+                sample_s = struct.unpack_from('%dh'%(len(data)/2/self.n_channels), b)
                 sample_d = np.array(sample_s) / 32768.0
             else:
                 # S24_3LE
-                b = bytearray(data)
                 sample_d = np.zeros(len(b)/3)
                 for i in range(len(sample_d)):
                     v = b[3*i] + 0x100*b[3*i+1] + 0x10000*b[3*i+2]
-                    sample_d[i] = v
-                    if v >= 0x800000:  # negative
-                        sample_d[i] = v - 0x1000000
+                    sample_d[i] = v - ((v & 0x800000) << 1)
                 sample_d = sample_d / (0x1000000 * 1.0)
-#            print("sample_d.shape", sample_d.shape)
-#            print("sum: % .3f, max: % .3f, min: % .3f" % (sample_d.sum(), sample_d.max(), sample_d.min()))
-            threadLock.release()
+            lock_sample_d.release()
 
 
 ###########################################################################
@@ -97,7 +96,6 @@ rec_thread.start()
 # https://docs.scipy.org/doc/numpy-dev/user/numpy-for-matlab-users.html
 # https://docs.scipy.org/doc/numpy-dev/user/quickstart.html
 
-import time
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
@@ -116,12 +114,12 @@ def graph_update(frame):
     if not rec_thread.isAlive():
         return 0,
     global sample_d
-    threadLock.acquire()
+    lock_sample_d.acquire()
     if rec_thread.n_channels == 1:
         y = sample_d.copy()
     else:
         y = sample_d[::2].copy()
-    threadLock.release()
+    lock_sample_d.release()
 #    y = np.random.rand(1000)
     l = len(y)
 #    print(y.shape)

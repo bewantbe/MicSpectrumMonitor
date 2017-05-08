@@ -1,0 +1,46 @@
+#!/bin/bash
+
+######################
+# ALSA tools
+
+# record internal
+arecord -vv --dump-hw-params -D 'default' -f S16_LE -r 48000 -c 1 --duration=10 a.wav
+
+# record UMIK
+arecord -vv --dump-hw-params -D 'hw:CARD=U18dB' -f S24_3LE -r 48000 -c 2 --duration=10 a.wav
+
+od -t x4 a.wav
+
+######################
+# pulseaudio tools
+
+# basic command
+pacmd
+   list-sources
+   set-source-volume 1 6554        # "base volume (0dB)"
+   list-source-outputs
+   set-source-output-volume 318 65536
+
+# select source port and set volume for arecord
+pacmd set-source-port 1 analog-input-headset-mic
+arecord -vv --dump-hw-params -D 'default' -f S16_LE -r 48000 -c 1 --duration=0 b00.wav
+pacmd list-source-outputs
+pacmd set-source-output-volume 454 9000
+
+# pulseaudio recorder (can not set duration)
+parecord -v --rate 48000 --format=s16le --channels=1 b.wav
+parecord -v --fix-format --fix-rate --no-remix b.wav
+
+# what is base point
+# https://lists.freedesktop.org/archives/pulseaudio-discuss/2012-April/013238.html
+
+# https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/PulseAudioStoleMyVolumes/
+
+# sampling rate
+# https://wiki.archlinux.org/index.php/PulseAudio/Troubleshooting
+# grep "default-sample-rate" /etc/pulse/daemon.conf
+
+# restart pulseaudio
+pulseaudio -k
+pulseaudio --start
+
