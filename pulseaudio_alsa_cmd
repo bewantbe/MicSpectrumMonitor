@@ -25,7 +25,7 @@ pacmd
 pacmd set-source-port 1 analog-input-headset-mic
 arecord -vv --dump-hw-params -D 'default' -f S16_LE -r 48000 -c 1 --duration=0 b00.wav
 pacmd list-source-outputs
-pacmd set-source-output-volume 454 9000
+pacmd set-source-output-volume 25 9000   # 9000 /  14% / -51.73 dB
 
 # pulseaudio recorder (can not set duration)
 parecord -v --rate 48000 --format=s16le --channels=1 b.wav

@@ -137,30 +137,4 @@ rec_thread.b_run = False
 
 print('Haha')
 
-# arecord -vv -D 'default' -f S16_LE -r 48000 -c 1 --duration=10 --dump-hw-params a.wav
-
-# set pulseaudio
-# pacmd
-#   list-sources
-#   set-source-volume 1 6554        # "base volume"
-#   list-source-outputs
-#   set-source-output-volume 318 65536
-
-# what is base point
-# https://lists.freedesktop.org/archives/pulseaudio-discuss/2012-April/013238.html
-
-# https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/PulseAudioStoleMyVolumes/
-
-# sampling rate
-# https://wiki.archlinux.org/index.php/PulseAudio/Troubleshooting
-# grep "default-sample-rate" /etc/pulse/daemon.conf
-
-# restart
-#pulseaudio -k
-#pulseaudio --start
-
-# UMIK
-# arecord -vv -D 'hw:CARD=U18dB' -f S24_3LE -r 48000 -c 2 --duration=10 --dump-hw-params a.wav
-# od -t x4 a.wav
-
 # vim: set expandtab shiftwidth=4 softtabstop=4:
