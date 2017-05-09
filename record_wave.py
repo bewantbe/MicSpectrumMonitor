@@ -79,14 +79,18 @@ class recThread(threading.Thread):
 
 # hold analyzed data
 class analyzerData():
-    def __init__(self, sz_chunk, rec_th):
+    def __init__(self, sz_chunk, rec_th, ave_num = 1):
         self.sz_chunk = sz_chunk
         self.rms = 0
         self.v = np.zeros(sz_chunk)
-        self.sp = np.zeros(sz_chunk)
+        self.sp_cumulate = np.zeros((sz_chunk + 2) / 2)
+        self.sp_db = np.zeros((sz_chunk + 2) / 2)
+        self.sp_cnt = 0
+        self.ave_num = ave_num
         self.lock_data = threading.Lock()
         self.sample_rate = rec_th.sample_rate
         self.wnd = 0.5 + 0.5 * np.cos((np.arange(1, sz_chunk+1) / (sz_chunk+1.0) - 0.5) * 2 * np.pi)
+        self.wnd_factor = np.sum(self.wnd) ** 2 / 4.0        # sin(x) = 0 dB
 
     def put(self, dat):
         # volt trace
@@ -94,11 +98,17 @@ class analyzerData():
         self.v[:] = 1.0 * dat[:]
         self.lock_data.release()
         
-        # spectrum in dB
+        # spectrum
         self.lock_data.acquire()
         tmp_s = np.fft.rfft(self.v * self.wnd)
-        fact = np.sum(self.wnd) ** 2 / 4.0        # sin(x) = 0 dB
-        self.sp = 10 * np.log10((tmp_s * tmp_s.conj()).real / fact)
+        self.sp_cumulate += (tmp_s * tmp_s.conj()).real / self.wnd_factor
+        self.sp_cnt += 1
+        if self.sp_cnt >= self.ave_num:
+            self.sp_cumulate /= self.sp_cnt
+            self.sp_cnt = 0
+            #  in dB
+            self.sp_db = 10 * np.log10(self.sp_cumulate)
+            self.sp_cumulate[:] = 0
         self.lock_data.release()
         
         # RMS in dB
@@ -109,10 +119,10 @@ class analyzerData():
         tmpv = self.v.copy()
         self.lock_data.release()
         return tmpv
-    
-    def getSpectrum(self):
+
+    def getSpectrumDB(self):
         self.lock_data.acquire()
-        tmps = self.sp.copy()
+        tmps = self.sp_db.copy()
         self.lock_data.release()
         return tmps
 
@@ -128,17 +138,15 @@ import matplotlib.pyplot as plt
 class plotAudio:
     def __init__(self, analyzer_data):
         self.fig, self.ax = plt.subplots(2, 1)
-#        self.plt_line, = plt.plot([], [], 'b', animated=True)
+
+        # init volt draw
         self.plt_line, = self.ax[0].plot([], [], 'b')
         self.ax[0].set_xlim(0, size_chunk / analyzer_data.sample_rate)
         self.ax[0].set_ylim(-1.1, 1.1)
         self.text_1 = self.ax[0].text(0.0, 0.94, '', transform=self.ax[0].transAxes)
         self.text_1.set_text('01')
-#        x = [0, 0.1]
-#        y = [-1, 1]
-#        self.plt_line.set_data(x, y)
-#        self.plt_line.figure.canvas.draw_idle()
 
+        # init spectum draw
         self.spectrum_line, = self.ax[1].plot([], [], 'b')
         self.ax[1].set_xlim(0, analyzer_data.sample_rate / 2)
         self.ax[1].set_ylim(-120, 1)
@@ -149,15 +157,11 @@ class plotAudio:
         self.plt_line.set_data(x, y)
         rms = analyzer_data.getRMS()
         self.text_1.set_text("%.3f, rms = %5.1f dB" % (time.time(), rms))
-        
-#        self.plt_line.figure.canvas.draw()
         self.plt_line.figure.canvas.draw_idle()
-#        self.fig.canvas.draw_idle()
 
-        y = analyzer_data.getSpectrum()
+        y = analyzer_data.getSpectrumDB()
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sz_chunk * analyzer_data.sample_rate
         self.spectrum_line.set_data(x, y)
-
         self.spectrum_line.figure.canvas.draw_idle()
         
     def show(self):
@@ -224,13 +228,13 @@ else:
 
 # init analyzer data
 size_chunk = 16384
-analyzer_data = analyzerData(size_chunk, rec_thread)
+analyzer_data = analyzerData(size_chunk, rec_thread, 4)
 
 # init ploter
 plot_audio = plotAudio(analyzer_data)
 
 # init data dispatcher
-process_thread = processThread('dispatch', buf_queue, plot_audio, size_chunk)
+process_thread = processThread('dispatch', buf_queue, plot_audio, size_chunk, size_chunk/2)
 process_thread.start()
 
 rec_thread.start()
