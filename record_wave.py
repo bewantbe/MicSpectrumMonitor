@@ -16,9 +16,6 @@ import numpy as np
 #######################################################################
 # Recorder thread
 
-# global variable that pass sample data from recorder to plot
-sample_d = np.array([0])
-
 # Threading
 # https://docs.python.org/2/library/threading.html
 # https://www.tutorialspoint.com/python/python_multithreading.htm
@@ -26,7 +23,7 @@ sample_d = np.array([0])
 # arecord --list-devices
 # use `arecord -L` to list recording devices
 
-lock_sample_d = threading.Lock()
+buf_queue = Queue.Queue(10000)
 
 class recThread(threading.Thread):
     def __init__(self, name, device, n_channels=1, sample_rate=44100, periodsize=160, format=alsaaudio.PCM_FORMAT_S16_LE):
@@ -41,7 +38,7 @@ class recThread(threading.Thread):
         self.periodsize  = periodsize
         self.format = format
         self.bytes_per_value = format == 2 if alsaaudio.PCM_FORMAT_S16_LE else 3
-        self.b_run = False;
+        self.b_run = False
 
     def run(self):
         # PCM Objects
@@ -52,9 +49,7 @@ class recThread(threading.Thread):
         inp.setformat(self.format)
         inp.setperiodsize(self.periodsize)   # frames per period
         
-        global sample_d
-
-        self.b_run = True;
+        self.b_run = True
         while self.b_run:
             l, data = inp.read()     # Read data from device
             if l == 0:
@@ -63,7 +58,6 @@ class recThread(threading.Thread):
                 print("recorder overrun at t = %.3f sec, some samples are lost." % (time.time()))
                 continue
             b = bytearray(data)
-            lock_sample_d.acquire()
             if self.format == alsaaudio.PCM_FORMAT_S16_LE:
                 sample_s = struct.unpack_from('%dh'%(len(data)/2/self.n_channels), b)
                 sample_d = np.array(sample_s) / 32768.0
@@ -74,14 +68,88 @@ class recThread(threading.Thread):
                     v = b[3*i] + 0x100*b[3*i+1] + 0x10000*b[3*i+2]
                     sample_d[i] = v - ((v & 0x800000) << 1)
                 sample_d = sample_d / (0x1000000 * 1.0)
-            lock_sample_d.release()
+            # separate channels
+            sample_d = sample_d.reshape((self.n_channels, len(sample_d)/self.n_channels))
+            if not buf_queue.full():
+                buf_queue.put(sample_d, True)
 
+# hold analyzed data
+class analyzerData():
+    def __init__(self, sz_chunk):
+        self.sz_chunk = sz_chunk
+        self.rms = 0
+        self.v = np.zeros(sz_chunk)
+        self.lock_data = threading.Lock()
+
+    def put(self, dat):
+        self.lock_data.acquire()
+        self.v[:] = 1.0 * dat[:]
+        self.lock_data.release()
+        self.rms = 10 * np.log10(np.sum(self.v**2) / len(self.v) * 2)
+
+    def getV(self):
+        self.lock_data.acquire()
+        tmpv = self.v.copy()
+        self.lock_data.release()
+        return tmpv
+
+    def getRMS(self):
+        return self.rms
+
+size_chunk = 16384
+analyzer_data = analyzerData(size_chunk)
+
+# Analyzer thread
+class processThread(threading.Thread):
+    def __init__(self, name, buf_que, sz_chunk, sz_hop=0):
+        threading.Thread.__init__(self)
+        self.name = name
+        self.buf_que = buf_que
+        self.b_run = False
+        self.sz_chunk = sz_chunk
+        self.sz_hop = sz_hop if sz_hop > 0 else sz_chunk
+
+    def process(self, chunk):
+        analyzer_data.put(chunk)
+
+    def run(self):
+        b_run = True
+        sz_chunk = self.sz_chunk
+        s_chunk = np.zeros(sz_chunk)
+        chunk_pos = 0             # position in chunk
+        # collect sampling data, call process() when ever get sz_chunk data
+        while b_run:
+            s = self.buf_que.get(True)
+            s = s[0, :]                    # select left channel
+            s_pos = 0
+            # `s` cross boundary
+            while sz_chunk - chunk_pos <= len(s) - s_pos:
+                s_chunk[chunk_pos:] = s[s_pos : s_pos+sz_chunk-chunk_pos]
+                s_pos += sz_chunk-chunk_pos
+                self.process(s_chunk)
+                chunk_pos = sz_chunk - self.sz_hop
+                s_chunk[0:chunk_pos] = s_chunk[self.sz_hop:]
+
+            s_chunk[chunk_pos : chunk_pos+len(s)-s_pos] = s[s_pos:]   # s is fit into chunk
+            chunk_pos += len(s)-s_pos
 
 ###########################################################################
 # main
-#rec_thread = recThread('rec', 'default', 1, 48000, 512, alsaaudio.PCM_FORMAT_S16_LE)
-#rec_thread = recThread('rec', 'default', 1, 48000, int(48000*0.05), alsaaudio.PCM_FORMAT_S16_LE)
-rec_thread = recThread('rec', 'hw:CARD=U18dB,DEV=0', 2, 48000, 1024, alsaaudio.PCM_FORMAT_S24_LE)
+
+process_thread = processThread('dispatch', buf_queue, size_chunk)
+process_thread.daemon = True
+process_thread.start()
+
+pcm_device = 'default'
+if len(sys.argv) > 1:
+    pcm_device = sys.argv[1]
+print("using device: ", pcm_device)
+if pcm_device == 'default':
+    rec_thread = recThread('rec', 'default', 1, 48000, int(48000*0.05), alsaaudio.PCM_FORMAT_S16_LE)
+elif pcm_device == 'hw:CARD=U18dB,DEV=0':
+    rec_thread = recThread('rec', 'hw:CARD=U18dB,DEV=0', 2, 48000, 1024, alsaaudio.PCM_FORMAT_S24_LE)
+else:
+    rec_thread = recThread('rec', device, 1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
 
 rec_thread.start()
 
@@ -105,7 +173,7 @@ plt_line, = plt.plot([], [], 'b', animated=True)
 text_1 = ax.text(0.0, 0.94, '', transform=ax.transAxes)
 
 def graph_init():
-    ax.set_xlim(0, rec_thread.periodsize)
+    ax.set_xlim(0, size_chunk)
     ax.set_ylim(-1.1, 1.1)
     text_1.set_text('01')
     return plt_line,text_1
@@ -113,19 +181,13 @@ def graph_init():
 def graph_update(frame):
     if not rec_thread.isAlive():
         return 0,
-    global sample_d
-    lock_sample_d.acquire()
-    if rec_thread.n_channels == 1:
-        y = sample_d.copy()
-    else:
-        y = sample_d[::2].copy()
-    lock_sample_d.release()
+    y = analyzer_data.getV()
 #    y = np.random.rand(1000)
     l = len(y)
 #    print(y.shape)
     x = np.arange(0, l, dtype='float')
     plt_line.set_data(x, y)
-    rms = 10 * np.log10(np.sum(y**2) / len(y) * 2)
+    rms = analyzer_data.getRMS()
     text_1.set_text("%.3f, rms = %5.1f dB" % (time.time(), rms))
     return plt_line,text_1
 
@@ -134,6 +196,7 @@ ani = FuncAnimation(fig, graph_update, frames=300, interval=30,
 plt.show()
 
 rec_thread.b_run = False
+process_thread.b_run = False
 
 print('Haha')
 

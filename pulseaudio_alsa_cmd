@@ -7,6 +7,10 @@
 arecord -vv --dump-hw-params -D 'default' -f S16_LE -r 48000 -c 1 --duration=10 a.wav
 
 # record UMIK
+pacmd list-sources
+pacmd set-source-mute alsa_input.usb-miniDSP_Umik-1_Gain__18dB_00002-00.analog-stereo false
+pacmd set-source-volume alsa_input.usb-miniDSP_Umik-1_Gain__18dB_00002-00.analog-stereo 26090        # "base volume (0dB)"
+
 arecord -vv --dump-hw-params -D 'hw:CARD=U18dB' -f S24_3LE -r 48000 -c 2 --duration=10 a.wav
 
 od -t x4 a.wav
@@ -15,17 +19,23 @@ od -t x4 a.wav
 # pulseaudio tools
 
 # basic command
-pacmd
-   list-sources
-   set-source-volume 1 6554        # "base volume (0dB)"
-   list-source-outputs
-   set-source-output-volume 318 65536
+pacmd list-sources
+pacmd set-source-mute 1 false
+pacmd set-source-volume 1 6554        # "base volume (0dB)"
 
 # select source port and set volume for arecord
 pacmd set-source-port 1 analog-input-headset-mic
 arecord -vv --dump-hw-params -D 'default' -f S16_LE -r 48000 -c 1 --duration=0 b00.wav
 pacmd list-source-outputs
 pacmd set-source-output-volume 25 9000   # 9000 /  14% / -51.73 dB
+
+# 10495   % to match cell phone (samsung)
+
+# samsung: 11800
+pacmd set-source-output-volume `pacmd list-source-outputs | grep index | cut -c 12-` 11800 && pacmd list-source-outputs | grep volume
+
+# huawei: 12400
+pacmd set-source-output-volume `pacmd list-source-outputs | grep index | cut -c 12-` 12400 && pacmd list-source-outputs | grep volume
 
 # pulseaudio recorder (can not set duration)
 parecord -v --rate 48000 --format=s16le --channels=1 b.wav
