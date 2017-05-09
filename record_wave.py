@@ -113,13 +113,18 @@ class processThread(threading.Thread):
         analyzer_data.put(chunk)
 
     def run(self):
-        b_run = True
+        self.b_run = True
         sz_chunk = self.sz_chunk
         s_chunk = np.zeros(sz_chunk)
         chunk_pos = 0             # position in chunk
         # collect sampling data, call process() when ever get sz_chunk data
-        while b_run:
-            s = self.buf_que.get(True)
+        while self.b_run:
+            try:
+                s = self.buf_que.get(True, 0.1)
+            except Queue.Empty:
+                s = []
+            if (s == []):
+                continue
             s = s[0, :]                    # select left channel
             s_pos = 0
             # `s` cross boundary
@@ -137,7 +142,6 @@ class processThread(threading.Thread):
 # main
 
 process_thread = processThread('dispatch', buf_queue, size_chunk)
-process_thread.daemon = True
 process_thread.start()
 
 pcm_device = 'default'
@@ -145,7 +149,7 @@ if len(sys.argv) > 1:
     pcm_device = sys.argv[1]
 print("using device: ", pcm_device)
 if pcm_device == 'default':
-    rec_thread = recThread('rec', 'default', 1, 48000, int(48000*0.05), alsaaudio.PCM_FORMAT_S16_LE)
+    rec_thread = recThread('rec', 'default', 1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
 elif pcm_device == 'hw:CARD=U18dB,DEV=0':
     rec_thread = recThread('rec', 'hw:CARD=U18dB,DEV=0', 2, 48000, 1024, alsaaudio.PCM_FORMAT_S24_LE)
 else:
@@ -173,7 +177,7 @@ plt_line, = plt.plot([], [], 'b', animated=True)
 text_1 = ax.text(0.0, 0.94, '', transform=ax.transAxes)
 
 def graph_init():
-    ax.set_xlim(0, size_chunk)
+    ax.set_xlim(0, size_chunk / (1.0*rec_thread.sample_rate))
     ax.set_ylim(-1.1, 1.1)
     text_1.set_text('01')
     return plt_line,text_1
@@ -185,7 +189,7 @@ def graph_update(frame):
 #    y = np.random.rand(1000)
     l = len(y)
 #    print(y.shape)
-    x = np.arange(0, l, dtype='float')
+    x = np.arange(0, l, dtype='float') / rec_thread.sample_rate
     plt_line.set_data(x, y)
     rms = analyzer_data.getRMS()
     text_1.set_text("%.3f, rms = %5.1f dB" % (time.time(), rms))
