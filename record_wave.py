@@ -67,6 +67,11 @@ class recThread(threading.Thread):
                 sample_d /= 0x1000000 * 1.0
             # separate channels
             sample_d = sample_d.reshape((self.n_channels, len(sample_d)/self.n_channels))
+#            # test signal
+#            global t0
+#            sample_d = np.sin(2*np.pi/16 * (t0 + np.arange(self.periodsize)))
+#            t0 += self.periodsize
+#            sample_d = sample_d.reshape((1, len(sample_d)))
             if not self.buf_que.full():
                 self.buf_que.put(sample_d, True)
             else:
@@ -78,13 +83,25 @@ class analyzerData():
         self.sz_chunk = sz_chunk
         self.rms = 0
         self.v = np.zeros(sz_chunk)
+        self.sp = np.zeros(sz_chunk)
         self.lock_data = threading.Lock()
         self.sample_rate = rec_th.sample_rate
+        self.wnd = 0.5 + 0.5 * np.cos((np.arange(1, sz_chunk+1) / (sz_chunk+1.0) - 0.5) * 2 * np.pi)
 
     def put(self, dat):
+        # volt trace
         self.lock_data.acquire()
         self.v[:] = 1.0 * dat[:]
         self.lock_data.release()
+        
+        # spectrum in dB
+        self.lock_data.acquire()
+        tmp_s = np.fft.rfft(self.v * self.wnd)
+        fact = np.sum(self.wnd) ** 2 / 4.0        # sin(x) = 0 dB
+        self.sp = 10 * np.log10((tmp_s * tmp_s.conj()).real / fact)
+        self.lock_data.release()
+        
+        # RMS in dB
         self.rms = 10 * np.log10(np.sum(self.v**2) / len(self.v) * 2) if len(self.v) > 0 else float('-inf')
 
     def getV(self):
@@ -92,6 +109,12 @@ class analyzerData():
         tmpv = self.v.copy()
         self.lock_data.release()
         return tmpv
+    
+    def getSpectrum(self):
+        self.lock_data.acquire()
+        tmps = self.sp.copy()
+        self.lock_data.release()
+        return tmps
 
     def getRMS(self):
         return self.rms
@@ -104,18 +127,21 @@ import matplotlib.pyplot as plt
 # ploter for audio data
 class plotAudio:
     def __init__(self, analyzer_data):
-        self.fig, self.ax = plt.subplots()
-        self.plt_line, = plt.plot([], [], 'b', animated=True)
-        #self.plt_line, = plt.plot([], [], 'b')
-        self.text_1 = self.ax.text(0.0, 0.94, '', transform=self.ax.transAxes)
-
-        self.ax.set_xlim(0, size_chunk / analyzer_data.sample_rate)
-        self.ax.set_ylim(-1.1, 1.1)
+        self.fig, self.ax = plt.subplots(2, 1)
+#        self.plt_line, = plt.plot([], [], 'b', animated=True)
+        self.plt_line, = self.ax[0].plot([], [], 'b')
+        self.ax[0].set_xlim(0, size_chunk / analyzer_data.sample_rate)
+        self.ax[0].set_ylim(-1.1, 1.1)
+        self.text_1 = self.ax[0].text(0.0, 0.94, '', transform=self.ax[0].transAxes)
         self.text_1.set_text('01')
-        x = [0, 0.1]
-        y = [-1, 1]
-        self.plt_line.set_data(x, y)
-        plt.draw()
+#        x = [0, 0.1]
+#        y = [-1, 1]
+#        self.plt_line.set_data(x, y)
+#        self.plt_line.figure.canvas.draw_idle()
+
+        self.spectrum_line, = self.ax[1].plot([], [], 'b')
+        self.ax[1].set_xlim(0, analyzer_data.sample_rate / 2)
+        self.ax[1].set_ylim(-120, 1)
 
     def graph_update(self, analyzer_data):
         y = analyzer_data.getV()
@@ -124,16 +150,16 @@ class plotAudio:
         rms = analyzer_data.getRMS()
         self.text_1.set_text("%.3f, rms = %5.1f dB" % (time.time(), rms))
         
-#        self.plt_line.figure.canvas.draw_idle()
+#        self.plt_line.figure.canvas.draw()
+        self.plt_line.figure.canvas.draw_idle()
 #        self.fig.canvas.draw_idle()
-#        plt.draw()
-        
-#        print('rms = %.3f' % (rms))
-#        print(' x = % .5f % .5f ' % (x[0], x[-1]))
-#        print(x.shape)
-#        print(' y = % .5f % .5f ' % (y[0], y[-1]))
-#        print(y.shape)
 
+        y = analyzer_data.getSpectrum()
+        x = np.arange(0, len(y), dtype='float') / analyzer_data.sz_chunk * analyzer_data.sample_rate
+        self.spectrum_line.set_data(x, y)
+
+        self.spectrum_line.figure.canvas.draw_idle()
+        
     def show(self):
         plt.show()
 
