@@ -66,7 +66,7 @@ class recThread(threading.Thread):
                     sample_d[i] = v - ((v & 0x800000) << 1)
                 sample_d /= 0x1000000 * 1.0
             # separate channels
-            sample_d = sample_d.reshape((self.n_channels, len(sample_d)/self.n_channels))
+            sample_d = sample_d.reshape((len(sample_d)/self.n_channels, self.n_channels)).T
 #            # test signal
 #            global t0
 #            sample_d = np.sin(2*np.pi/16 * (t0 + np.arange(self.periodsize)))
@@ -76,6 +76,7 @@ class recThread(threading.Thread):
                 self.buf_que.put(sample_d, True)
             else:
                 print('recThread: Buffer overrun.')
+        print('Thread ', self.name, ' exited.')
 
 # hold analyzed data
 class analyzerData():
@@ -99,7 +100,6 @@ class analyzerData():
         self.lock_data.release()
         
         # spectrum
-        self.lock_data.acquire()
         tmp_s = np.fft.rfft(self.v * self.wnd)
         self.sp_cumulate += (tmp_s * tmp_s.conj()).real / self.wnd_factor
         self.sp_cnt += 1
@@ -107,9 +107,10 @@ class analyzerData():
             self.sp_cumulate /= self.sp_cnt
             self.sp_cnt = 0
             #  in dB
+            self.lock_data.acquire()
             self.sp_db = 10 * np.log10(self.sp_cumulate)
+            self.lock_data.release()
             self.sp_cumulate[:] = 0
-        self.lock_data.release()
         
         # RMS in dB
         self.rms = 10 * np.log10(np.sum(self.v**2) / len(self.v) * 2) if len(self.v) > 0 else float('-inf')
@@ -148,8 +149,9 @@ class plotAudio:
 
         # init spectum draw
         self.spectrum_line, = self.ax[1].plot([], [], 'b')
-        self.ax[1].set_xlim(0, analyzer_data.sample_rate / 2)
+        self.ax[1].set_xlim(1, analyzer_data.sample_rate / 2)
         self.ax[1].set_ylim(-120, 1)
+        self.ax[1].set_xscale('log')
 
     def graph_update(self, analyzer_data):
         y = analyzer_data.getV()
@@ -179,8 +181,11 @@ class processThread(threading.Thread):
         self.ploter = ploter
 
     def process(self, chunk):
+#        print('Thread ', self.name, ' process() - 1')
         analyzer_data.put(chunk)
+#        print('Thread ', self.name, ' process() - 2')
         self.ploter.graph_update(analyzer_data)
+#        print('Thread ', self.name, ' process() - 3')
 
     def run(self):
         self.b_run = True
@@ -189,15 +194,18 @@ class processThread(threading.Thread):
         chunk_pos = 0             # position in chunk
         # collect sampling data, call process() when ever get sz_chunk data
         while self.b_run:
+#            print('Thread ', self.name, ' 1')
             try:
                 s = self.buf_que.get(True, 0.1)
             except Queue.Empty:
                 s = []
+#            print('Thread ', self.name, ' 2')
             if (s == []):
                 continue
             s = s[0, :]                    # select left channel
             s_pos = 0
             # `s` cross boundary
+#            print('Thread ', self.name, ' 3')
             while sz_chunk - chunk_pos <= len(s) - s_pos:
                 s_chunk[chunk_pos:] = s[s_pos : s_pos+sz_chunk-chunk_pos]
                 s_pos += sz_chunk-chunk_pos
@@ -205,19 +213,32 @@ class processThread(threading.Thread):
                 chunk_pos = sz_chunk - self.sz_hop
                 s_chunk[0:chunk_pos] = s_chunk[self.sz_hop:]
 
+#            print('Thread ', self.name, ' 4')
             s_chunk[chunk_pos : chunk_pos+len(s)-s_pos] = s[s_pos:]   # s is fit into chunk
             chunk_pos += len(s)-s_pos
+        print('Thread ', self.name, ' exited.')
 
 ###########################################################################
 # main
+
+# parse input parameters
+pcm_device = 'default'
+if len(sys.argv) > 1:
+    pcm_device = sys.argv[1]
+
+size_chunk = 16384
+if len(sys.argv) > 2:
+    size_chunk = int(sys.argv[2])
+
+n_ave = 1;
+if len(sys.argv) > 3:
+    n_ave = int(sys.argv[3])
+
 
 # buffer that transmit data from recorder to processor
 buf_queue = Queue.Queue(10000)
 
 # prepare recorder
-pcm_device = 'default'
-if len(sys.argv) > 1:
-    pcm_device = sys.argv[1]
 print("using device: ", pcm_device)
 if pcm_device == 'default':
     rec_thread = recThread('rec', buf_queue, 'default', 1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
@@ -227,8 +248,7 @@ else:
     rec_thread = recThread('rec', buf_queue, device, 1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
 
 # init analyzer data
-size_chunk = 16384
-analyzer_data = analyzerData(size_chunk, rec_thread, 4)
+analyzer_data = analyzerData(size_chunk, rec_thread, n_ave)
 
 # init ploter
 plot_audio = plotAudio(analyzer_data)
