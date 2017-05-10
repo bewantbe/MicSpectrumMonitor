@@ -36,6 +36,18 @@ fprintf('reading ...');fflush(stdout); tic;
 [x2 sr2] = wavread(fname2);
 x1 = x1(:,1);
 x2 = x2(:,1);
+
+% time aligment
+shift1 = floor(1024/4 * -446.815);
+if shift1 >= 0
+  x1 = x1(1:end-shift1);
+  x2 = x2(1+shift1:end);
+else
+  shift1 = -shift1;
+  x1 = x1(1+shift1:end);
+  x2 = x2(1:end-shift1);
+end
+
 fprintf(' done. (t = %.3f sec)\n', toc);fflush(stdout);
 
 %x1 = x1 * (10 ^ (2.4/10));  % cell phone adjust to match volume 9000
