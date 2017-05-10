@@ -25,8 +25,11 @@ sleep 3; arecord -vv --dump-hw-params -D 'default' -f S16_LE -r 48000 -c 1 --dur
 %fname1 = 'b22_xde_umik1_id3270_vol26090.wav';
 %fname2 = 'b21_xde_imm6_id8_vol12400.wav';
 
-fname1 = 'c02_xde_umik1_id3270_vol26090.wav';
-fname2 = 'rec2017-05-09_12h20m59.545s_sm_imm6-id4.wav';
+%fname1 = 'c02_xde_umik1_id3270_vol26090.wav';
+%fname2 = 'rec2017-05-09_12h20m59.545s_sm_imm6-id4.wav';
+
+fname1 = 'c51_imm6_vol20000.wav';
+fname2 = 'c52_umik1_vol65536.wav';
 
 fprintf('reading ...');fflush(stdout); tic;
 [x1 sr1] = wavread(fname1);
@@ -37,7 +40,7 @@ fprintf(' done. (t = %.3f sec)\n', toc);fflush(stdout);
 
 %x1 = x1 * (10 ^ (2.4/10));  % cell phone adjust to match volume 9000
 
-x1 = x1 * (10 ^ (2.4/10));  % res, cell phone adjust to match volume 9000
+x1 = x1 * (10 ^ (3.5/10));
 
 x1 = x1(round(end/3):round(end*2/3));
 x2 = x2(round(end/3):round(end*2/3));
