@@ -172,6 +172,23 @@ class analyzerData():
         np.seterr(divide='ignore')       # for God's sake
         return 20*np.log10(fft_rms) + 10*np.log10(2)
 
+class FPSLimiter:
+    """ fps limiter """
+    def __init__(self, fps):
+        self.dt = 1.0 / fps
+        self.time_to_update = time.time()
+    
+    def checkFPSAllow(self):
+        time_now = time.time()
+        if (self.time_to_update > time_now):
+            return False
+        self.time_to_update += self.dt
+        if time_now > self.time_to_update :
+            self.time_to_update = time_now + self.dt
+        return True
+
+fps_lim1 = FPSLimiter(2)
+
 # py plot
 # http://matplotlib.org/api/pyplot_api.html#matplotlib.pyplot.plot
 
@@ -195,30 +212,43 @@ class plotAudio:
         self.ax[1].set_ylim(-140, 1)
         self.ax[1].set_xscale('log')
         self.text_2 = self.ax[1].text(0.0, 0.94, '', transform=self.ax[1].transAxes)
-
-    def graph_update(self, analyzer_data):
+        
+    def plotVolt(self):
         # volt
         y = analyzer_data.getV()
+        if y.any():
+            self.ax[0].set_ylim(np.array([-1.3, 1.3])*y.max())
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sample_rate
         self.plt_line.set_data(x, y)        
         # RMS
         rms = analyzer_data.getRMS_dB()
         self.text_1.set_text("%.3f, rms = %5.2f dB" % (time.time(), rms))
-        self.plt_line.figure.canvas.draw_idle()
 
+    def plotSpectrum(self):
         # spectrum
         y = analyzer_data.getSpectrumDB()
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sz_chunk * analyzer_data.sample_rate
         self.spectrum_line.set_data(x, y)
         fft_rms = analyzer_data.getFFTRMS_dBA()
         self.text_2.set_text("dBA rms = %5.2f dB" % (fft_rms))
+
+    def graph_update(self, analyzer_data):
+        if not fps_lim1.checkFPSAllow() :
+            return
+        
+        self.plotVolt()
+        self.plt_line.figure.canvas.draw_idle()
+        print("\rRMS: % 5.2f dB, % 5.2f dBA" % (analyzer_data.getRMS_dB(), analyzer_data.getFFTRMS_dBA()), end='')
+        sys.stdout.flush()
+
+        self.plotSpectrum()
         self.spectrum_line.figure.canvas.draw_idle()
         
     def show(self):
         plt.show()
 
-# Analyzer thread
 class processThread(threading.Thread):
+    """ data dispatch thread """
     def __init__(self, name, buf_que, ploter, sz_chunk, sz_hop=0):
         threading.Thread.__init__(self)
         self.name = name
