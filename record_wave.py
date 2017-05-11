@@ -8,17 +8,19 @@ import struct
 import Queue
 import threading
 
-import alsaaudio
-
 import numpy as np
 
-# Threading
-# https://docs.python.org/2/library/threading.html
-# https://www.tutorialspoint.com/python/python_multithreading.htm
+# https://larsimmisch.github.io/pyalsaaudio/
+import alsaaudio
 
-# use `arecord --list-devices` to list recording devices
-# use `arecord -L` to list all recording sources
-# use `pacmd list-sources` to list available recording sources in system using pulseaudio
+# Use `arecord -L` to list all recording sources
+# To set volume
+"""
+pacmd set-source-port 1 analog-input-headset-mic
+pacmd set-source-mute 1 false
+pacmd set-source-volume 1 6554   # "base volume" see `pacmd list-sources`
+pacmd set-source-output-volume `pacmd list-source-outputs | grep index | cut -c 12-` 13000 && pacmd list-source-outputs | grep volume
+"""
 
 class cosSignal:
     """ cos signal generator """
@@ -213,6 +215,12 @@ class plotAudio:
         self.ax[1].set_xscale('log')
         self.text_2 = self.ax[1].text(0.0, 0.94, '', transform=self.ax[1].transAxes)
         
+        # For blit
+        # http://stackoverflow.com/questions/8955869/why-is-plotting-with-matplotlib-so-slow
+        self.fig.show()
+        self.fig.canvas.draw()
+        self.backgrounds = [self.fig.canvas.copy_from_bbox(ax.bbox) for ax in self.ax]
+        
     def plotVolt(self):
         # volt
         y = analyzer_data.getV()
@@ -235,14 +243,22 @@ class plotAudio:
     def graph_update(self, analyzer_data):
         if not fps_lim1.checkFPSAllow() :
             return
-        
-        self.plotVolt()
-        self.plt_line.figure.canvas.draw_idle()
+
         print("\rRMS: % 5.2f dB, % 5.2f dBA" % (analyzer_data.getRMS_dB(), analyzer_data.getFFTRMS_dBA()), end='')
         sys.stdout.flush()
-
+        
+        self.fig.canvas.restore_region(self.backgrounds[0])
+        self.plotVolt()
+        self.ax[0].draw_artist(self.plt_line)
+        self.ax[0].draw_artist(self.text_1)
+        self.fig.canvas.blit(self.ax[0].bbox)
+        
+        self.fig.canvas.restore_region(self.backgrounds[1])
         self.plotSpectrum()
-        self.spectrum_line.figure.canvas.draw_idle()
+        self.ax[1].draw_artist(self.spectrum_line)
+        self.ax[1].draw_artist(self.text_2)
+        self.fig.canvas.blit(self.ax[1].bbox)
+#        self.fig.canvas.draw_idle()
         
     def show(self):
         plt.show()
@@ -342,6 +358,6 @@ plot_audio.show()
 rec_thread.b_run = False
 process_thread.b_run = False
 
-print('Haha')
+print('\nHaha')
 
 # vim: set expandtab shiftwidth=4 softtabstop=4:
