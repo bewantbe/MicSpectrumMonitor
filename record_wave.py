@@ -20,7 +20,20 @@ import numpy as np
 # use `arecord -L` to list all recording sources
 # use `pacmd list-sources` to list available recording sources in system using pulseaudio
 
-t0 = 0
+class cosSignal:
+    """ cos signal generator """
+    def __init__(self, freq, sample_rate):
+        self.t0 = 0
+        self.freq = freq
+        self.sample_rate = sample_rate
+
+    def get(self, size):
+        fq = 1.0 * self.freq / self.sample_rate
+        sample_d = np.cos(2*np.pi * fq * (self.t0 + np.arange(size)))
+        self.t0 += size
+        return sample_d.reshape((1, size))
+
+cos_signal = cosSignal(1000, 48000)
 
 class recThread(threading.Thread):
     """ Recorder thread """
@@ -73,13 +86,7 @@ class recThread(threading.Thread):
                 print("recorder overrun at t = %.3f sec, some samples are lost." % (time.time()))
                 continue
             sample_d = self.decode_raw_samples(data)
-
-            # test signal
-            global t0
-            freq = 20.0/48000;
-            sample_d = np.cos(2*np.pi*freq * (t0 + np.arange(self.periodsize)))
-            t0 += self.periodsize
-            sample_d = sample_d.reshape((1, len(sample_d)))
+#            sample_d = cos_signal.get(self.periodsize)
 
             if not self.buf_que.full():
                 self.buf_que.put(sample_d, True)
@@ -99,7 +106,7 @@ class analyzerData():
         # hold spectrums, no negative frequency
         self.sp_cumulate = np.zeros((self.sz_fft + 2) / 2)
         self.sp_vo = np.zeros((self.sz_fft + 2) / 2)
-        self.sp_db = np.zeros((self.sz_fft + 2) / 2)
+        self.sp_db = np.ones((self.sz_fft + 2) / 2) * float('-inf')
         self.sp_cnt = 0
         self.ave_num = ave_num       # number of averages to get one spectrum
         self.lock_data = threading.Lock()
@@ -108,13 +115,10 @@ class analyzerData():
         self.wnd *= len(self.wnd) / np.sum(self.wnd)
         self.wnd_factor = 4.0 / np.sum(self.wnd) ** 2   # 1*sin(t) = 0 dBFS
         # factor for dBA
-        self.dBAFactor = np.zeros(len(self.sp_vo))  # apply to power spectrum
-        # TODO: use np.arange() to replace for loop
         sqr = lambda x: x*x
-        for i in range(len(self.dBAFactor)):
-            f = float(i)/self.sz_fft * self.sample_rate;
-            r = sqr(12200.0)*sqr(sqr(f)) / ((f*f+sqr(20.6)) * np.sqrt((f*f+sqr(107.7)) * (f*f+sqr(737.9))) * (f*f+sqr(12200.0)))
-            self.dBAFactor[i] = r * r * 10 ** (1/5.0)
+        fqs = 1.0 * np.arange(len(self.sp_vo)) / self.sz_fft * self.sample_rate
+        r = sqr(12194.0)*sqr(sqr(fqs)) / ((fqs*fqs+sqr(20.6)) * np.sqrt((fqs*fqs+sqr(107.7)) * (fqs*fqs+sqr(737.9))) * (fqs*fqs+sqr(12194.0)))
+        self.dBAFactor = r * r * 10 ** (1/5.0)
 
     def put(self, data):
         # volt trace
@@ -136,6 +140,8 @@ class analyzerData():
             self.sp_cnt = 0
             self.lock_data.acquire()
             self.sp_vo[:] = self.sp_cumulate[:]
+            if True:  # need dBA
+                self.sp_vo *= self.dBAFactor
             np.seterr(divide='ignore')       # for God's sake
             self.sp_db = 10 * np.log10(self.sp_vo)  #  in dB
             self.lock_data.release()
@@ -156,14 +162,12 @@ class analyzerData():
         return tmps
 
     def getRMS_dB(self):
+        np.seterr(divide='ignore')       # for God's sake
         return 20*np.log10(self.rms) + 10*np.log10(2)
 
-    def getFFTRMS_dBA(self, dBAFactor = []):
-        if dBAFactor == []:
-            dBAFactor = self.dBAFactor
-        fftlen = self.sz_fft
+    def getFFTRMS_dBA(self):
         self.lock_data.acquire()
-        fft_rms = np.sqrt(2 * np.sum(self.sp_vo * dBAFactor) / self.wnd_factor / fftlen / np.sum(self.wnd ** 2))
+        fft_rms = np.sqrt(2 * np.sum(self.sp_vo) / self.wnd_factor / self.sz_fft / np.sum(self.wnd ** 2))
         self.lock_data.release()
         np.seterr(divide='ignore')       # for God's sake
         return 20*np.log10(fft_rms) + 10*np.log10(2)
@@ -188,26 +192,26 @@ class plotAudio:
         # init spectum draw
         self.spectrum_line, = self.ax[1].plot([], [], 'b')
         self.ax[1].set_xlim(1, analyzer_data.sample_rate / 2)
-#        self.ax[1].set_ylim(-120, 1)
-        self.ax[1].set_ylim(-5, 5)
+        self.ax[1].set_ylim(-140, 1)
         self.ax[1].set_xscale('log')
+        self.text_2 = self.ax[1].text(0.0, 0.94, '', transform=self.ax[1].transAxes)
 
     def graph_update(self, analyzer_data):
         # volt
         y = analyzer_data.getV()
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sample_rate
-        self.plt_line.set_data(x, y)
-        
+        self.plt_line.set_data(x, y)        
         # RMS
         rms = analyzer_data.getRMS_dB()
-        fft_rms = analyzer_data.getFFTRMS_dBA()
-        self.text_1.set_text("%.3f, rms = %5.2f dB, dBA rms = %5.2f dB" % (time.time(), rms, fft_rms))
+        self.text_1.set_text("%.3f, rms = %5.2f dB" % (time.time(), rms))
         self.plt_line.figure.canvas.draw_idle()
 
         # spectrum
         y = analyzer_data.getSpectrumDB()
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sz_chunk * analyzer_data.sample_rate
         self.spectrum_line.set_data(x, y)
+        fft_rms = analyzer_data.getFFTRMS_dBA()
+        self.text_2.set_text("dBA rms = %5.2f dB" % (fft_rms))
         self.spectrum_line.figure.canvas.draw_idle()
         
     def show(self):
