@@ -76,8 +76,8 @@ class recThread(threading.Thread):
 
             # test signal
             global t0
-            freq = 1.0 / 16;
-            sample_d = np.sin(2*np.pi*freq * (t0 + np.arange(self.periodsize)))
+            freq = 0.25;
+            sample_d = np.cos(2*np.pi*freq * (t0 + np.arange(self.periodsize)))
             t0 += self.periodsize
             sample_d = sample_d.reshape((1, len(sample_d)))
 
@@ -106,7 +106,7 @@ class analyzerData():
         # window function
         self.wnd = 0.5 + 0.5 * np.cos((np.arange(1, sz_chunk+1) / (sz_chunk+1.0) - 0.5) * 2 * np.pi)
         self.wnd *= len(self.wnd) / np.sum(self.wnd)
-        self.wnd_factor = np.sum(self.wnd) ** 2 / 4.0   # 1*sin(t) = 0 dBFS
+        self.wnd_factor = 4.0 / np.sum(self.wnd) ** 2   # 1*sin(t) = 0 dBFS
         # factor for dBA
         self.dBAFactor = np.zeros(len(self.sp_vo))  # apply to power spectrum
         # TODO: use np.arange() to replace for loop
@@ -124,11 +124,11 @@ class analyzerData():
         
         # spectrum
         tmp_amp = np.fft.rfft(self.v * self.wnd, self.sz_fft)
-        tmp_pow = (tmp_amp * tmp_amp.conj()).real / self.wnd_factor
+        tmp_pow = (tmp_amp * tmp_amp.conj()).real * self.wnd_factor
         if self.sz_fft % 2 == 0:
-            tmp_pow = np.concatenate([[tmp_pow[0]/4], tmp_pow[1:-1], [tmp_pow[-1]/4]])
+            tmp_pow = np.concatenate([[tmp_pow[0]/2], tmp_pow[1:-1], [tmp_pow[-1]/2]])
         else:
-            tmp_pow = np.concatenate([[tmp_pow[0]/4], tmp_pow[1:]])
+            tmp_pow = np.concatenate([[tmp_pow[0]/2], tmp_pow[1:]])
         self.sp_cumulate += tmp_pow
         self.sp_cnt += 1
         if self.sp_cnt >= self.ave_num:
@@ -165,10 +165,10 @@ class analyzerData():
         fftlen = self.sz_fft
         self.lock_data.acquire()
 #        fft_rms = np.sqrt(np.sum(self.sp_vo * dBAFactor) * fftlen / np.sum(self.wnd ** 2))
-        fft_rms = 2 * np.sum(self.sp_vo * dBAFactor) * self.wnd_factor / fftlen / fftlen  # fixit: last block count twince
+        fft_rms = np.sqrt(2 * np.sum(self.sp_vo * dBAFactor) / self.wnd_factor / fftlen / np.sum(self.wnd ** 2))
         self.lock_data.release()
         np.seterr(divide='ignore')       # for God's sake
-        return 10*np.log10(fft_rms)
+        return 20*np.log10(fft_rms) + 10*np.log10(2)
 
 # py plot
 # http://matplotlib.org/api/pyplot_api.html#matplotlib.pyplot.plot

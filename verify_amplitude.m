@@ -6,9 +6,9 @@ a2db = @(x) 20*log10(x);  % amplitude to dB
 # signal
 sr = 48000;
 dt = 1/sr;
-len = 16;
+len = 128;
 t = linspace(0, (len-1)*dt, len);
-x = sin(2*pi*t/(4*dt));
+x = sin(2*pi*(t/(3*dt) - 0.3));
 figure(1); plot(t, x, '-o')
 
 # RMS
@@ -44,10 +44,9 @@ fprintf('zero = %e\n', rms - rms_fft);
 
 wnd = wnd.len / sum(wnd)
 
-data = fft(wnd .* x)
-
 scaler = 2.0*2.0 / (data.length * data.length)
-(data[i]*data[i] + data[i+1]*data[i+1]) * scaler
+data = fft(wnd .* x)
+s = (data[i]*data[i] + data[i+1]*data[i+1]) * scaler
 
 => spectrum
 
