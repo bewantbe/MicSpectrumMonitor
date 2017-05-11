@@ -21,7 +21,7 @@ od -t x4 a.wav
 # basic command
 pacmd list-sources
 pacmd set-source-mute 1 false
-pacmd set-source-volume 1 6554        # "base volume (0dB)"
+pacmd set-source-volume 1 6554        # "base volume (0dB)" = -60 dB
 
 # select source port and set volume for arecord
 pacmd set-source-port 1 analog-input-headset-mic
@@ -36,6 +36,9 @@ pacmd set-source-output-volume `pacmd list-source-outputs | grep index | cut -c 
 
 # huawei: 12400
 pacmd set-source-output-volume `pacmd list-source-outputs | grep index | cut -c 12-` 12400 && pacmd list-source-outputs | grep volume
+
+# match cellphone in dBA RMS, vol 13000 = -42.15 dB
+pacmd set-source-output-volume `pacmd list-source-outputs | grep index | cut -c 12-` 13000 && pacmd list-source-outputs | grep volume
 
 # pulseaudio recorder (can not set duration)
 parecord -v --rate 48000 --format=s16le --channels=1 b.wav

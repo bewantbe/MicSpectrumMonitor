@@ -16,15 +16,18 @@ import numpy as np
 # https://docs.python.org/2/library/threading.html
 # https://www.tutorialspoint.com/python/python_multithreading.htm
 
-# arecord --list-devices
-# use `arecord -L` to list recording devices
+# use `arecord --list-devices` to list recording devices
+# use `arecord -L` to list all recording sources
+# use `pacmd list-sources` to list available recording sources in system using pulseaudio
 
-# Recorder thread
+t0 = 0
+
 class recThread(threading.Thread):
-    def __init__(self, name, buf_que, device, n_channels=1, sample_rate=44100, periodsize=160, format=alsaaudio.PCM_FORMAT_S16_LE):
+    """ Recorder thread """
+    def __init__(self, name, buf_que, device, n_channels=1, sample_rate=44100, periodsize=256, format=alsaaudio.PCM_FORMAT_S16_LE):
         threading.Thread.__init__(self)
         self.name = name
-        self.buf_que = buf_que
+        self.buf_que = buf_que    # "output" port of recording data
         if (len(device) > 0):
             self.device = device
         else:
@@ -33,8 +36,24 @@ class recThread(threading.Thread):
         self.sample_rate = sample_rate * 1.0  # keep float, so easier for math
         self.periodsize  = periodsize
         self.format = format
-        self.bytes_per_value = format == 2 if alsaaudio.PCM_FORMAT_S16_LE else 3
         self.b_run = False
+    
+    def decode_raw_samples(self, data):
+        b = bytearray(data)
+        if self.format == alsaaudio.PCM_FORMAT_S16_LE:
+            # S16_LE
+            sample_s = struct.unpack_from('%dh'%(len(data)/2/self.n_channels), b)
+            sample_d = np.array(sample_s) / 32768.0
+        else:
+            # S24_3LE
+            sample_d = np.zeros(len(b)/3)
+            for i in range(len(sample_d)):
+                v = b[3*i] + 0x100*b[3*i+1] + 0x10000*b[3*i+2]
+                sample_d[i] = v - ((v & 0x800000) << 1)
+            sample_d /= 0x1000000 * 1.0
+        # separate channels
+        sample_d = sample_d.reshape((len(sample_d)/self.n_channels, self.n_channels)).T
+        return sample_d
 
     def run(self):
         # PCM Objects
@@ -53,67 +72,76 @@ class recThread(threading.Thread):
             if l < 0:
                 print("recorder overrun at t = %.3f sec, some samples are lost." % (time.time()))
                 continue
-            b = bytearray(data)
-            if self.format == alsaaudio.PCM_FORMAT_S16_LE:
-                # S16_LE
-                sample_s = struct.unpack_from('%dh'%(len(data)/2/self.n_channels), b)
-                sample_d = np.array(sample_s) / 32768.0
-            else:
-                # S24_3LE
-                sample_d = np.zeros(len(b)/3)
-                for i in range(len(sample_d)):
-                    v = b[3*i] + 0x100*b[3*i+1] + 0x10000*b[3*i+2]
-                    sample_d[i] = v - ((v & 0x800000) << 1)
-                sample_d /= 0x1000000 * 1.0
-            # separate channels
-            sample_d = sample_d.reshape((len(sample_d)/self.n_channels, self.n_channels)).T
-#            # test signal
-#            global t0
-#            sample_d = np.sin(2*np.pi/16 * (t0 + np.arange(self.periodsize)))
-#            t0 += self.periodsize
-#            sample_d = sample_d.reshape((1, len(sample_d)))
+            sample_d = self.decode_raw_samples(data)
+
+            # test signal
+            global t0
+            freq = 1.0 / 16;
+            sample_d = np.sin(2*np.pi*freq * (t0 + np.arange(self.periodsize)))
+            t0 += self.periodsize
+            sample_d = sample_d.reshape((1, len(sample_d)))
+
             if not self.buf_que.full():
                 self.buf_que.put(sample_d, True)
             else:
                 print('recThread: Buffer overrun.')
         print('Thread ', self.name, ' exited.')
 
-# hold analyzed data
+# Analyze data
 class analyzerData():
+    """ Data analyzer """
     def __init__(self, sz_chunk, rec_th, ave_num = 1):
-        self.sz_chunk = sz_chunk
-        self.rms = 0
-        self.v = np.zeros(sz_chunk)
-        self.sp_cumulate = np.zeros((sz_chunk + 2) / 2)
-        self.sp_db = np.zeros((sz_chunk + 2) / 2)
-        self.sp_cnt = 0
-        self.ave_num = ave_num
-        self.lock_data = threading.Lock()
         self.sample_rate = rec_th.sample_rate
+        self.sz_chunk = sz_chunk     # data size for one FFT
+        self.sz_fft   = sz_chunk     # FFT frequency points
+        self.rms_db = 0
+        self.v = np.zeros(sz_chunk)
+        # hold spectrums, no negative frequency
+        self.sp_cumulate = np.zeros((self.sz_fft + 2) / 2)
+        self.sp_vo = np.zeros((self.sz_fft + 2) / 2)
+        self.sp_db = np.zeros((self.sz_fft + 2) / 2)
+        self.sp_cnt = 0
+        self.ave_num = ave_num       # number of averages to get one spectrum
+        self.lock_data = threading.Lock()
+        # window function
         self.wnd = 0.5 + 0.5 * np.cos((np.arange(1, sz_chunk+1) / (sz_chunk+1.0) - 0.5) * 2 * np.pi)
-        self.wnd_factor = np.sum(self.wnd) ** 2 / 4.0        # sin(x) = 0 dB
+        self.wnd *= len(self.wnd) / np.sum(self.wnd)
+        self.wnd_factor = np.sum(self.wnd) ** 2 / 4.0   # 1*sin(t) = 0 dBFS
+        # factor for dBA
+        self.dBAFactor = np.zeros(len(self.sp_vo))  # apply to power spectrum
+        # TODO: use np.arange() to replace for loop
+        sqr = lambda x: x*x
+        for i in range(len(self.dBAFactor)):
+            f = float(i)/self.sz_fft * self.sample_rate;
+            r = sqr(12200.0)*sqr(sqr(f)) / ((f*f+sqr(20.6)) * np.sqrt((f*f+sqr(107.7)) * (f*f+sqr(737.9))) * (f*f+sqr(12200.0)))
+            self.dBAFactor[i] = r * r * 10 ** (1/5.0)
 
-    def put(self, dat):
+    def put(self, data):
         # volt trace
         self.lock_data.acquire()
-        self.v[:] = 1.0 * dat[:]
+        self.v[:] = 1.0 * data[:]    # save a copy, minize lock time
         self.lock_data.release()
         
         # spectrum
-        tmp_s = np.fft.rfft(self.v * self.wnd)
-        self.sp_cumulate += (tmp_s * tmp_s.conj()).real / self.wnd_factor
+        tmp_amp = np.fft.rfft(self.v * self.wnd, self.sz_fft)
+        tmp_pow = (tmp_amp * tmp_amp.conj()).real / self.wnd_factor
+        if self.sz_fft % 2 == 0:
+            tmp_pow = np.concatenate([[tmp_pow[0]/4], tmp_pow[1:-1], [tmp_pow[-1]/4]])
+        else:
+            tmp_pow = np.concatenate([[tmp_pow[0]/4], tmp_pow[1:]])
+        self.sp_cumulate += tmp_pow
         self.sp_cnt += 1
         if self.sp_cnt >= self.ave_num:
             self.sp_cumulate /= self.sp_cnt
             self.sp_cnt = 0
-            #  in dB
             self.lock_data.acquire()
-            self.sp_db = 10 * np.log10(self.sp_cumulate)
+            self.sp_vo[:] = self.sp_cumulate[:]
+            np.seterr(divide='ignore')       # for God's sake
+            self.sp_db = 10 * np.log10(self.sp_vo)  #  in dB
             self.lock_data.release()
             self.sp_cumulate[:] = 0
         
-        # RMS in dB
-        self.rms = 10 * np.log10(np.sum(self.v**2) / len(self.v) * 2) if len(self.v) > 0 else float('-inf')
+        self.rms_db = 10 * np.log10(np.sum(self.v**2) / len(self.v) * 2) if len(self.v) > 0 and self.v.any() else float('-inf')
 
     def getV(self):
         self.lock_data.acquire()
@@ -128,7 +156,19 @@ class analyzerData():
         return tmps
 
     def getRMS(self):
-        return self.rms
+        return self.rms_db
+
+    def getFFTRMS_dBA(self, dBAFactor = []):
+        if dBAFactor == []:
+            dBAFactor = self.dBAFactor
+        dBAFactor = 1
+        fftlen = self.sz_fft
+        self.lock_data.acquire()
+#        fft_rms = np.sqrt(np.sum(self.sp_vo * dBAFactor) * fftlen / np.sum(self.wnd ** 2))
+        fft_rms = 2 * np.sum(self.sp_vo * dBAFactor) * self.wnd_factor / fftlen / fftlen  # fixit: last block count twince
+        self.lock_data.release()
+        np.seterr(divide='ignore')       # for God's sake
+        return 10*np.log10(fft_rms)
 
 # py plot
 # http://matplotlib.org/api/pyplot_api.html#matplotlib.pyplot.plot
@@ -143,24 +183,30 @@ class plotAudio:
         # init volt draw
         self.plt_line, = self.ax[0].plot([], [], 'b')
         self.ax[0].set_xlim(0, size_chunk / analyzer_data.sample_rate)
-        self.ax[0].set_ylim(-1.1, 1.1)
+        self.ax[0].set_ylim(-1.3, 1.3)
         self.text_1 = self.ax[0].text(0.0, 0.94, '', transform=self.ax[0].transAxes)
         self.text_1.set_text('01')
 
         # init spectum draw
         self.spectrum_line, = self.ax[1].plot([], [], 'b')
         self.ax[1].set_xlim(1, analyzer_data.sample_rate / 2)
-        self.ax[1].set_ylim(-120, 1)
+#        self.ax[1].set_ylim(-120, 1)
+        self.ax[1].set_ylim(-5, 5)
         self.ax[1].set_xscale('log')
 
     def graph_update(self, analyzer_data):
+        # volt
         y = analyzer_data.getV()
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sample_rate
         self.plt_line.set_data(x, y)
+        
+        # RMS
         rms = analyzer_data.getRMS()
-        self.text_1.set_text("%.3f, rms = %5.1f dB" % (time.time(), rms))
+        fft_rms = analyzer_data.getFFTRMS_dBA()
+        self.text_1.set_text("%.3f, rms = %5.2f dB, dBA rms = %5.2f dB" % (time.time(), rms, fft_rms))
         self.plt_line.figure.canvas.draw_idle()
 
+        # spectrum
         y = analyzer_data.getSpectrumDB()
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sz_chunk * analyzer_data.sample_rate
         self.spectrum_line.set_data(x, y)
