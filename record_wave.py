@@ -76,7 +76,7 @@ class recThread(threading.Thread):
 
             # test signal
             global t0
-            freq = 0.25;
+            freq = 20.0/48000;
             sample_d = np.cos(2*np.pi*freq * (t0 + np.arange(self.periodsize)))
             t0 += self.periodsize
             sample_d = sample_d.reshape((1, len(sample_d)))
@@ -94,7 +94,7 @@ class analyzerData():
         self.sample_rate = rec_th.sample_rate
         self.sz_chunk = sz_chunk     # data size for one FFT
         self.sz_fft   = sz_chunk     # FFT frequency points
-        self.rms_db = 0
+        self.rms = 0
         self.v = np.zeros(sz_chunk)
         # hold spectrums, no negative frequency
         self.sp_cumulate = np.zeros((self.sz_fft + 2) / 2)
@@ -141,7 +141,7 @@ class analyzerData():
             self.lock_data.release()
             self.sp_cumulate[:] = 0
         
-        self.rms_db = 10 * np.log10(np.sum(self.v**2) / len(self.v) * 2) if len(self.v) > 0 and self.v.any() else float('-inf')
+        self.rms = np.sqrt(np.sum(self.v ** 2) / len(self.v))
 
     def getV(self):
         self.lock_data.acquire()
@@ -155,16 +155,14 @@ class analyzerData():
         self.lock_data.release()
         return tmps
 
-    def getRMS(self):
-        return self.rms_db
+    def getRMS_dB(self):
+        return 20*np.log10(self.rms) + 10*np.log10(2)
 
     def getFFTRMS_dBA(self, dBAFactor = []):
         if dBAFactor == []:
             dBAFactor = self.dBAFactor
-        dBAFactor = 1
         fftlen = self.sz_fft
         self.lock_data.acquire()
-#        fft_rms = np.sqrt(np.sum(self.sp_vo * dBAFactor) * fftlen / np.sum(self.wnd ** 2))
         fft_rms = np.sqrt(2 * np.sum(self.sp_vo * dBAFactor) / self.wnd_factor / fftlen / np.sum(self.wnd ** 2))
         self.lock_data.release()
         np.seterr(divide='ignore')       # for God's sake
@@ -201,7 +199,7 @@ class plotAudio:
         self.plt_line.set_data(x, y)
         
         # RMS
-        rms = analyzer_data.getRMS()
+        rms = analyzer_data.getRMS_dB()
         fft_rms = analyzer_data.getFFTRMS_dBA()
         self.text_1.set_text("%.3f, rms = %5.2f dB, dBA rms = %5.2f dB" % (time.time(), rms, fft_rms))
         self.plt_line.figure.canvas.draw_idle()
