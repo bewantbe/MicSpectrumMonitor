@@ -13,6 +13,9 @@ import numpy as np
 # https://larsimmisch.github.io/pyalsaaudio/
 import alsaaudio
 
+# to run:  `python record_wave.py default 8192 16`
+# to kill: `pkill -f record_wave.py`
+
 # Use `arecord -L` to list all recording sources
 # To set volume
 """
@@ -189,12 +192,19 @@ class FPSLimiter:
             self.time_to_update = time_now + self.dt
         return True
 
-fps_lim1 = FPSLimiter(2)
+fps_lim1 = FPSLimiter(3)
 
 # py plot
 # http://matplotlib.org/api/pyplot_api.html#matplotlib.pyplot.plot
 
+import matplotlib
 import matplotlib.pyplot as plt
+
+# http://matplotlib.org/users/customizing.html
+font = {'family' : 'DejaVu Sans',
+        'weight' : 'bold',
+        'size'   : 11}
+matplotlib.rc('font', **font)
 
 # ploter for audio data
 class plotAudio:
@@ -205,18 +215,23 @@ class plotAudio:
         self.plt_line, = self.ax[0].plot([], [], 'b')
         self.ax[0].set_xlim(0, size_chunk / analyzer_data.sample_rate)
         self.ax[0].set_ylim(-1.3, 1.3)
-        self.text_1 = self.ax[0].text(0.0, 0.94, '', transform=self.ax[0].transAxes)
-        self.text_1.set_text('01')
+        self.text_1 = self.ax[0].text(0.0, 0.91, '', transform=self.ax[0].transAxes)
+        self.text_1.set_text('')
+        self.plt_line.set_animated(True)
+        self.text_1.set_animated(True)
 
         # init spectum draw
         self.spectrum_line, = self.ax[1].plot([], [], 'b')
         self.ax[1].set_xlim(1, analyzer_data.sample_rate / 2)
         self.ax[1].set_ylim(-140, 1)
         self.ax[1].set_xscale('log')
-        self.text_2 = self.ax[1].text(0.0, 0.94, '', transform=self.ax[1].transAxes)
+        self.text_2 = self.ax[1].text(0.0, 0.91, '', transform=self.ax[1].transAxes)
+        self.spectrum_line.set_animated(True)
+        self.text_2.set_animated(True)
         
         # For blit
         # http://stackoverflow.com/questions/8955869/why-is-plotting-with-matplotlib-so-slow
+        # http://scipy-cookbook.readthedocs.io/items/Matplotlib_Animations.html
         self.fig.show()
         self.fig.canvas.draw()
         self.backgrounds = [self.fig.canvas.copy_from_bbox(ax.bbox) for ax in self.ax]
@@ -230,7 +245,7 @@ class plotAudio:
         self.plt_line.set_data(x, y)        
         # RMS
         rms = analyzer_data.getRMS_dB()
-        self.text_1.set_text("%.3f, rms = %5.2f dB" % (time.time(), rms))
+        self.text_1.set_text("%.3f, RMS = %5.2f dB" % (time.time(), rms))
 
     def plotSpectrum(self):
         # spectrum
@@ -238,7 +253,7 @@ class plotAudio:
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sz_chunk * analyzer_data.sample_rate
         self.spectrum_line.set_data(x, y)
         fft_rms = analyzer_data.getFFTRMS_dBA()
-        self.text_2.set_text("dBA rms = %5.2f dB" % (fft_rms))
+        self.text_2.set_text("dBA RMS = %5.2f dB" % (fft_rms))
 
     def graph_update(self, analyzer_data):
         if not fps_lim1.checkFPSAllow() :
@@ -258,7 +273,8 @@ class plotAudio:
         self.ax[1].draw_artist(self.spectrum_line)
         self.ax[1].draw_artist(self.text_2)
         self.fig.canvas.blit(self.ax[1].bbox)
-#        self.fig.canvas.draw_idle()
+        
+        self.fig.canvas.flush_events()
         
     def show(self):
         plt.show()
@@ -358,6 +374,6 @@ plot_audio.show()
 rec_thread.b_run = False
 process_thread.b_run = False
 
-print('\nHaha')
+print('\nExiting...')
 
 # vim: set expandtab shiftwidth=4 softtabstop=4:
