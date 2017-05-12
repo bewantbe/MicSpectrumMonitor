@@ -15,6 +15,7 @@ import alsaaudio
 
 # to run:  `python record_wave.py default 8192 16`
 # to kill: `pkill -f record_wave.py`
+# to record: `arecord -vv --dump-hw-params -D 'default' -f S16_LE -r 48000 -c 1 --duration=20 r1_imm_1.wav`
 
 # Use `arecord -L` to list all recording sources
 # To set volume
@@ -23,7 +24,17 @@ pacmd set-source-port 1 analog-input-headset-mic
 pacmd set-source-mute 1 false
 pacmd set-source-volume 1 6554   # "base volume" see `pacmd list-sources`
 pacmd set-source-output-volume `pacmd list-source-outputs | grep index | cut -c 12-` 13000 && pacmd list-source-outputs | grep volume
+pacmd set-source-volume 1 6554 && pacmd list-sources | grep volume
 """
+
+# xde: UMIK-1 vol=65536 (0 dB) <-dBA-> PMIK-1 vol=16800 (-35.47 dB)
+# xde: UMIK-1 vol=65536 (0 dB) <-dBA-> iMM-6 id=8, vol=16800 + 6.2 dB
+# xde: UMIK-1 vol=65536 (0 dB) <-dBA-> iMM-6 id=8, vol=21000 (-29.66 dB)
+
+# xde: UMIK-1 vol=26090 (-24.00 dB) <-dBA-> PMIK-1 vol=6700 (-59.42 dB)
+# xde: UMIK-1 vol=26090 (-24.00 dB) <-dBA-> iMM-6 id=8, vol=8500 (-53.22 dB)
+
+# xde: UMIK-2 vol=52000 (-6.03 dB) <-dBA-> huawei: PMIK-1 (rec)
 
 class cosSignal:
     """ cos signal generator """
@@ -192,7 +203,7 @@ class FPSLimiter:
             self.time_to_update = time_now + self.dt
         return True
 
-fps_lim1 = FPSLimiter(3)
+fps_lim1 = FPSLimiter(10)
 
 # py plot
 # http://matplotlib.org/api/pyplot_api.html#matplotlib.pyplot.plot
@@ -205,6 +216,9 @@ font = {'family' : 'DejaVu Sans',
         'weight' : 'bold',
         'size'   : 11}
 matplotlib.rc('font', **font)
+
+# https://matplotlib.org/users/event_handling.html
+# ResizeEvent
 
 # ploter for audio data
 class plotAudio:
@@ -241,6 +255,8 @@ class plotAudio:
         y = analyzer_data.getV()
         if y.any():
             self.ax[0].set_ylim(np.array([-1.3, 1.3])*y.max())
+        # Animating xaxis range is still a problem:
+        # https://github.com/matplotlib/matplotlib/issues/2324
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sample_rate
         self.plt_line.set_data(x, y)        
         # RMS
@@ -259,13 +275,14 @@ class plotAudio:
         if not fps_lim1.checkFPSAllow() :
             return
 
-        print("\rRMS: % 5.2f dB, % 5.2f dBA" % (analyzer_data.getRMS_dB(), analyzer_data.getFFTRMS_dBA()), end='')
+        print("\rRMS: % 5.2f dB, % 5.2f dBA    " % (analyzer_data.getRMS_dB(), analyzer_data.getFFTRMS_dBA()), end='')
         sys.stdout.flush()
         
         self.fig.canvas.restore_region(self.backgrounds[0])
         self.plotVolt()
         self.ax[0].draw_artist(self.plt_line)
         self.ax[0].draw_artist(self.text_1)
+#        self.ax[0].draw_artist(self.ax[0].get_yaxis())  # slow
         self.fig.canvas.blit(self.ax[0].bbox)
         
         self.fig.canvas.restore_region(self.backgrounds[1])
