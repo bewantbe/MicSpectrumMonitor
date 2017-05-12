@@ -49,7 +49,13 @@ class cosSignal:
         self.t0 += size
         return sample_d.reshape((1, size))
 
+class whiteSignal:
+    """ white noise generator """
+    def get(self, size):
+        return np.random.rand(1, size)*2-1
+
 cos_signal = cosSignal(1000, 48000)
+white_signal = whiteSignal()
 
 class recThread(threading.Thread):
     """ Recorder thread """
@@ -103,6 +109,7 @@ class recThread(threading.Thread):
                 continue
             sample_d = self.decode_raw_samples(data)
 #            sample_d = cos_signal.get(self.periodsize)
+            sample_d = white_signal.get(self.periodsize)
 
             if not self.buf_que.full():
                 self.buf_que.put(sample_d, True)
@@ -133,8 +140,42 @@ class analyzerData():
         # factor for dBA
         sqr = lambda x: x*x
         fqs = 1.0 * np.arange(len(self.sp_vo)) / self.sz_fft * self.sample_rate
+        self.fqs = fqs
         r = sqr(12194.0)*sqr(sqr(fqs)) / ((fqs*fqs+sqr(20.6)) * np.sqrt((fqs*fqs+sqr(107.7)) * (fqs*fqs+sqr(737.9))) * (fqs*fqs+sqr(12194.0)))
         self.dBAFactor = r * r * 10 ** (1/5.0)
+        self.calib_fqs_db = []
+        self.calib_fqs_pow = []
+        self.calib_centre_freq = []
+        self.calib_centre_db = []
+#        self.loadCalib('99-21328.txt')
+
+    def loadCalib(self, fname):
+        calib_file_type = ''
+        calib_orig = []
+        with open(fname, "r") as fin:
+            for l in fin:
+                l = l.strip(' \t\n')
+                if len(l) == 0: continue
+                if l[0] == '*':  # imm header
+                    calib_file_type = 'imm'
+                    self.calib_centre_freq, self.calib_centre_db =\
+                        map(float, l[1:].lower().split('hz'))
+                    print('calib : %.2f dB at %.1f Hz' % (self.calib_centre_db, self.calib_centre_freq))
+                elif l[0] == '#':
+                    # comment line
+                    pass
+                elif '0'<=l[0] and l[0]<'9' or l[0]=='-' or l[0]=='+':
+                    fq_db = map(float, l.split())
+                    calib_orig.append(fq_db) 
+        
+        if len(calib_orig) == 0 or (np.array(map(len, calib_orig))-2).any():
+            # abnormal calibration file
+            print('File "%s" format not recognized.' % (fname))
+            return
+        calib_orig = np.array(calib_orig).T
+	self.calib_fqs_db = np.interp(self.fqs, calib_orig[0], calib_orig[1])
+	self.calib_fqs_pow = 10 ** (self.calib_fqs_db / 10)
+	print('Using calibration file "%s": %d entries' % (fname, len(calib_orig[0])))
 
     def put(self, data):
         # volt trace
@@ -145,6 +186,8 @@ class analyzerData():
         # spectrum
         tmp_amp = np.fft.rfft(self.v * self.wnd, self.sz_fft)
         tmp_pow = (tmp_amp * tmp_amp.conj()).real * self.wnd_factor
+        if len(self.calib_fqs_db) > 0:
+            tmp_pow /= self.calib_fqs_pow
         if self.sz_fft % 2 == 0:
             tmp_pow = np.concatenate([[tmp_pow[0]/2], tmp_pow[1:-1], [tmp_pow[-1]/2]])
         else:
@@ -156,7 +199,7 @@ class analyzerData():
             self.sp_cnt = 0
             self.lock_data.acquire()
             self.sp_vo[:] = self.sp_cumulate[:]
-            if True:  # need dBA
+            if False:  # need dBA
                 self.sp_vo *= self.dBAFactor
             np.seterr(divide='ignore')       # for God's sake
             self.sp_db = 10 * np.log10(self.sp_vo)  #  in dB
