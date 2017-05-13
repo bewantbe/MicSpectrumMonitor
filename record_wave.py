@@ -5,6 +5,7 @@ from __future__ import print_function
 import sys
 import time
 import struct
+import re
 import Queue
 import threading
 
@@ -16,7 +17,7 @@ from numpy import sum
 # https://larsimmisch.github.io/pyalsaaudio/
 import alsaaudio
 
-# to run:  `python record_wave.py default 8192 16`
+# to run:  `python record_wave.py -d default -l 8192 -n 128 --calib='99-21328.txt'`
 # to kill: `pkill -f record_wave.py`
 # to record: `arecord -vv --dump-hw-params -D 'default' -f S16_LE -r 48000 -c 1 --duration=20 r1_imm_1.wav`
 
@@ -164,23 +165,40 @@ class analyzerData():
             self.calib_centre_db = []
             return
         
-        calib_file_type = ''
         calib_orig = []
         with open(fname, "r") as fin:
             for l in fin:
                 l = l.strip(' \t\n')
                 if len(l) == 0: continue
-                if l[0] == '*':  # imm header
-                    calib_file_type = 'imm'
+                if l[0] == '*':
+                    print('loadCalib: Dayton Audio iMM-6 header')
                     self.calib_centre_freq, self.calib_centre_db =\
                         map(float, l[1:].lower().split('hz'))
-                    print('calib : %.2f dB at %.1f Hz' % (self.calib_centre_db, self.calib_centre_freq))
+                    print('loadCalib: %.2f dB at %.1f Hz' % (self.calib_centre_db, self.calib_centre_freq))
                 elif l[0] == '#':
                     # comment line
                     pass
-                elif '0'<=l[0] and l[0]<'9' or l[0]=='-' or l[0]=='+':
+                elif l[0:12] == '"Sens Factor':
+                    print('loadCalib: miniDSP UMIK header')
+                    # "Sens Factor =-.6383dB, SERNO: 7023270"
+                    m = re.search('([+-]?[.0-9]+)', l)
+                    if m is not None:
+                        self.calib_centre_db = float(m.group(1))
+                        self.calib_centre_freq = []
+                        m2 = re.search('SERNO:[ \t]*([0-9]+)', l[m.end():])
+                        if m2 is not None:
+                            print('loadCalib:', m2.group())
+                elif l[0:13] == '"miniDSP PMIK':
+                    print('loadCalib: miniDSP PMIK header')
+                    # "miniDSP PMIK-1 calibration file, serial: 8000348, format: txt"
+                    m2 = re.search('serial:[ \t]*([0-9]+)', l)
+                    if m2 is not None:
+                        print('loadCalib:', m2.group())
+                elif '0'<=l[0] and l[0]<='9' or l[0]=='-' or l[0]=='+':
                     fq_db = map(float, l.split())
-                    calib_orig.append(fq_db) 
+                    calib_orig.append(fq_db)
+                else:
+                    print('Ignored line: %s' % (l))
         
         if len(calib_orig) == 0 or (np.array(map(len, calib_orig))-2).any():
             # abnormal calibration file
