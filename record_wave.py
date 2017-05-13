@@ -38,7 +38,7 @@ pacmd set-source-volume 1 6554 && pacmd list-sources | grep volume
 # xde: UMIK-1 vol=26090 (-24.00 dB) <-dBA-> PMIK-1 vol=6700 (-59.42 dB)
 # xde: UMIK-1 vol=26090 (-24.00 dB) <-dBA-> iMM-6 id=8, vol=8500 (-53.22 dB)
 
-# xde: UMIK-2 vol=52000 (-6.03 dB) <-dBA-> huawei: PMIK-1 (rec)
+# xde: UMIK-1 vol=52000 (-6.03 dB) <-dBA-> huawei: PMIK-1 (rec)
 
 class cosSignal:
     """ cos signal generator """
@@ -119,7 +119,7 @@ class recThread(threading.Thread):
                 continue
             sample_d = self.decode_raw_samples(data)
 #            sample_d = cos_signal.get(self.periodsize)
-            sample_d = white_signal.get(self.periodsize)
+#            sample_d = white_signal.get(self.periodsize)
 
             if not self.buf_que.full():
                 self.buf_que.put(sample_d, True)
@@ -359,6 +359,7 @@ class plotAudio:
         self.plt_line, = self.ax[0].plot([], [], 'b')
         self.ax[0].set_xlim(0, size_chunk / analyzer_data.sample_rate)
         self.ax[0].set_ylim(-1.3, 1.3)
+        self.ax[0].set_xlabel('t')
         self.text_1 = self.ax[0].text(0.0, 0.91, '', transform=self.ax[0].transAxes)
         self.text_1.set_text('')
         self.plt_line.set_animated(True)
@@ -367,9 +368,10 @@ class plotAudio:
         # init spectum draw
         self.spectrum_line, = self.ax[1].plot([], [], 'b')
         self.ax[1].set_xlim(1, analyzer_data.sample_rate / 2)
-#        self.ax[1].set_ylim(-140, 1)
-        self.ax[1].set_ylim(-43, -33)
+        self.ax[1].set_ylim(-140, 1)
+#        self.ax[1].set_ylim(-43, -33)  # for debug
         self.ax[1].set_xscale('log')
+        self.ax[1].set_xlabel('freq(Hz)')
         self.text_2 = self.ax[1].text(0.0, 0.91, '', transform=self.ax[1].transAxes)
         self.spectrum_line.set_animated(True)
         self.text_2.set_animated(True)
@@ -400,7 +402,7 @@ class plotAudio:
         self.plt_line.set_data(x, y)        
         # RMS
         rms = analyzer_data.getRMS_dB()
-        self.text_1.set_text("%.3f, RMS = %5.2f dB" % (time.time(), rms))
+        self.text_1.set_text("RMS = %5.2f dB" % (rms))
 
     def plotSpectrum(self):
         analyzer_data = self.analyzer_data
@@ -409,16 +411,16 @@ class plotAudio:
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sz_chunk * analyzer_data.sample_rate
         self.spectrum_line.set_data(x, y)
         fft_rms = analyzer_data.getFFTRMS_dBA()
-        self.text_2.set_text("dBA RMS = %5.2f dB" % (fft_rms))
+        self.text_2.set_text("RMS = %5.2f %s %s" % (fft_rms, self.str_dBA, self.str_normalize))
 
     def graph_update(self):
         if not fps_lim1.checkFPSAllow() :
             return
 
         analyzer_data = self.analyzer_data
-        str_normalize = '(sine=0dB)' if RMS_normalize_to_sine else '(square=0dB)'
-        str_dBA = 'dBA' if use_dBA else 'dB'
-        print("\rRMS: % 5.2f dB, % 5.2f %s %s   " % (analyzer_data.getRMS_dB(), analyzer_data.getFFTRMS_dBA(), str_dBA, str_normalize), end='')
+        self.str_normalize = '(sine=0dB)' if RMS_normalize_to_sine else '(square=0dB)'
+        self.str_dBA = 'dBA' if use_dBA else 'dB'
+        print("\rRMS: % 5.2f dB, % 5.2f %s %s   " % (analyzer_data.getRMS_dB(), analyzer_data.getFFTRMS_dBA(), self.str_dBA, self.str_normalize), end='')
         sys.stdout.flush()
         
         self.fig.canvas.restore_region(self.backgrounds[0])
