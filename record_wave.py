@@ -1,4 +1,4 @@
-#!/usample_rate/bin/env python
+#!/usr/bin/env python
 
 from __future__ import print_function
 
@@ -138,7 +138,6 @@ class recThread(threading.Thread):
 class analyzerData():
     """ Data analyzer """
     def __init__(self, sz_chunk, rec_th, ave_num = 1):
-        self.updated = False
         self.sample_rate = rec_th.sample_rate
         self.sz_chunk = sz_chunk     # data size for one FFT
         self.sz_fft   = sz_chunk     # FFT frequency points
@@ -152,8 +151,8 @@ class analyzerData():
         self.ave_num = ave_num       # number of averages to get one spectrum
         self.lock_data = threading.Lock()
         # window function
-#        self.wnd = 0.5 + 0.5 * np.cos((np.arange(1, sz_chunk+1) / (sz_chunk+1.0) - 0.5) * 2 * np.pi)
-        self.wnd = np.ones(sz_chunk)
+        self.wnd = 0.5 + 0.5 * np.cos((np.arange(1, sz_chunk+1) / (sz_chunk+1.0) - 0.5) * 2 * np.pi)
+#        self.wnd = np.ones(sz_chunk)
         self.wnd *= len(self.wnd) / sum(self.wnd)
         self.wnd_factor = 2.0 / sum(self.wnd) ** 2   # 1*sin(t) = 0 dBFS
         # factor for dBA
@@ -162,13 +161,17 @@ class analyzerData():
         self.fqs = fqs
         r = sqr(12194.0)*sqr(sqr(fqs)) / ((fqs*fqs+sqr(20.6)) * sqrt((fqs*fqs+sqr(107.7)) * (fqs*fqs+sqr(737.9))) * (fqs*fqs+sqr(12194.0)))
         self.dBAFactor = r * r * 10 ** (1/5.0)
-        self.calib_db = []
-        self.calib_pow = []
-        self.calib_centre_freq = []
-        self.calib_centre_db = []
-        self.loadCalib('99-21328.txt')
+        self.use_dBA = False
+        self.loadCalib('')
 
     def loadCalib(self, fname):
+        if len(fname) == 0:  # clear the calibration
+            self.calib_db = []
+            self.calib_pow = []
+            self.calib_centre_freq = []
+            self.calib_centre_db = []
+            return
+        
         calib_file_type = ''
         calib_orig = []
         with open(fname, "r") as fin:
@@ -218,7 +221,7 @@ class analyzerData():
             self.sp_cnt = 0
             self.lock_data.acquire()
             self.sp_vo[:] = self.sp_cumulate[:]
-            if False:  # need dBA
+            if self.use_dBA:
                 self.sp_vo *= self.dBAFactor
             np.seterr(divide='ignore')       # for God's sake
             self.sp_db = 10 * log10(self.sp_vo)  #  in dB
@@ -226,7 +229,6 @@ class analyzerData():
             self.sp_cumulate[:] = 0
         
         self.rms = sqrt(sum(self.v ** 2) / len(self.v))
-        self.updated = True
 
     def getV(self):
         self.lock_data.acquire()
@@ -330,9 +332,8 @@ class plotAudio:
     
     def onClose(self, event):
         self.b_run = False
-        self.cv.acquire()
-        self.cv.notify()
-        self.cv.release()
+        with self.cv:
+            self.cv.notify()
     
     def saveBackground(self):
         # For blit
@@ -389,15 +390,12 @@ class plotAudio:
         self.fig.canvas.flush_events()
         
     def show(self):
-#        plt.show()
+#        use this like `plt.show()`
         self.b_run = True
         while self.b_run:
-            self.cv.acquire()
-            while not analyzer_data.updated:
+            with self.cv:
                 self.cv.wait()
-            self.graph_update()
-            analyzer_data.updated = False
-            self.cv.release()
+            self.graph_update()    # need lock or not?
 
 class processThread(threading.Thread):
     """ data dispatch thread """
@@ -413,9 +411,8 @@ class processThread(threading.Thread):
     def process(self, chunk):
         analyzer_data.put(chunk)
         # notify UI thread (for plot) that new data comes
-        self.cv.acquire()
-        self.cv.notify()
-        self.cv.release()
+        with self.cv:
+            self.cv.notify()
 
     def run(self):
         self.b_run = True
@@ -460,24 +457,28 @@ n_ave = 1
 if len(sys.argv) > 3:
     n_ave = int(sys.argv[3])
 
-
 # buffer that transmit data from recorder to processor
 buf_queue = Queue.Queue(10000)
-
-# lock for UI thread
-condition_variable = threading.Condition()
 
 # prepare recorder
 print("using device: ", pcm_device)
 if pcm_device == 'default':
-    rec_thread = recThread('rec', buf_queue, 'default', 1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
+    rec_thread = recThread('rec', buf_queue, 'default', \
+        1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
 elif pcm_device == 'hw:CARD=U18dB,DEV=0':
-    rec_thread = recThread('rec', buf_queue, 'hw:CARD=U18dB,DEV=0', 2, 48000, 1024, alsaaudio.PCM_FORMAT_S24_LE)
+    rec_thread = recThread('rec', buf_queue, 'hw:CARD=U18dB,DEV=0', \
+        2, 48000, 1024, alsaaudio.PCM_FORMAT_S24_LE)
 else:
-    rec_thread = recThread('rec', buf_queue, device, 1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
+    rec_thread = recThread('rec', buf_queue, device, \
+        1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
 
 # init analyzer data
 analyzer_data = analyzerData(size_chunk, rec_thread, n_ave)
+analyzer_data.loadCalib('99-21328.txt')
+analyzer_data.use_dBA = True
+
+# lock for UI thread
+condition_variable = threading.Condition()
 
 # init ploter
 plot_audio = plotAudio(analyzer_data, condition_variable)
