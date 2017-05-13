@@ -138,6 +138,7 @@ class recThread(threading.Thread):
 class analyzerData():
     """ Data analyzer """
     def __init__(self, sz_chunk, rec_th, ave_num = 1):
+        self.updated = False
         self.sample_rate = rec_th.sample_rate
         self.sz_chunk = sz_chunk     # data size for one FFT
         self.sz_fft   = sz_chunk     # FFT frequency points
@@ -225,6 +226,7 @@ class analyzerData():
             self.sp_cumulate[:] = 0
         
         self.rms = sqrt(sum(self.v ** 2) / len(self.v))
+        self.updated = True
 
     def getV(self):
         self.lock_data.acquire()
@@ -283,7 +285,10 @@ matplotlib.rc('font', **font)
 
 # ploter for audio data
 class plotAudio:
-    def __init__(self, analyzer_data):
+    def __init__(self, analyzer_data, condition_variable):
+        self.b_run = False
+        self.analyzer_data = analyzer_data
+        self.cv = condition_variable
         self.fig, self.ax = plt.subplots(2, 1)
 
         # init volt draw
@@ -312,13 +317,22 @@ class plotAudio:
         
         self.saveBackground()
         
-        self.event_cid = self.fig.canvas.mpl_connect('resize_event', self.onResize)
+        self.event_cids = [ \
+            self.fig.canvas.mpl_connect('resize_event', self.onResize), \
+            self.fig.canvas.mpl_connect('close_event', self.onClose)]
 
     def __del__(self):
-        self.fig.canvas.mpl_disconnect(self.event_cid)
+        for cid in self.event_cids:
+            self.fig.canvas.mpl_disconnect(cid)
         
     def onResize(self, event):
         self.saveBackground()
+    
+    def onClose(self, event):
+        self.b_run = False
+        self.cv.acquire()
+        self.cv.notify()
+        self.cv.release()
     
     def saveBackground(self):
         # For blit
@@ -329,6 +343,7 @@ class plotAudio:
         self.backgrounds = [self.fig.canvas.copy_from_bbox(ax.bbox) for ax in self.ax]
         
     def plotVolt(self):
+        analyzer_data = self.analyzer_data
         # volt
         y = analyzer_data.getV()
         if y.any():
@@ -342,6 +357,7 @@ class plotAudio:
         self.text_1.set_text("%.3f, RMS = %5.2f dB" % (time.time(), rms))
 
     def plotSpectrum(self):
+        analyzer_data = self.analyzer_data
         # spectrum
         y = analyzer_data.getSpectrumDB()
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sz_chunk * analyzer_data.sample_rate
@@ -349,10 +365,11 @@ class plotAudio:
         fft_rms = analyzer_data.getFFTRMS_dBA()
         self.text_2.set_text("dBA RMS = %5.2f dB" % (fft_rms))
 
-    def graph_update(self, analyzer_data):
+    def graph_update(self):
         if not fps_lim1.checkFPSAllow() :
             return
 
+        analyzer_data = self.analyzer_data
         print("\rRMS: % 5.2f dB, % 5.2f dBA    " % (analyzer_data.getRMS_dB(), analyzer_data.getFFTRMS_dBA()), end='')
         sys.stdout.flush()
         
@@ -372,25 +389,33 @@ class plotAudio:
         self.fig.canvas.flush_events()
         
     def show(self):
-        plt.show()
+#        plt.show()
+        self.b_run = True
+        while self.b_run:
+            self.cv.acquire()
+            while not analyzer_data.updated:
+                self.cv.wait()
+            self.graph_update()
+            analyzer_data.updated = False
+            self.cv.release()
 
 class processThread(threading.Thread):
     """ data dispatch thread """
-    def __init__(self, name, buf_que, ploter, sz_chunk, sz_hop=0):
+    def __init__(self, name, buf_que, condition_variable, sz_chunk, sz_hop=0):
         threading.Thread.__init__(self)
         self.name = name
         self.buf_que = buf_que
         self.b_run = False
         self.sz_chunk = sz_chunk
         self.sz_hop = sz_hop if sz_hop > 0 else sz_chunk
-        self.ploter = ploter
+        self.cv = condition_variable
 
     def process(self, chunk):
-#        print('Thread ', self.name, ' process() - 1')
         analyzer_data.put(chunk)
-#        print('Thread ', self.name, ' process() - 2')
-        self.ploter.graph_update(analyzer_data)
-#        print('Thread ', self.name, ' process() - 3')
+        # notify UI thread (for plot) that new data comes
+        self.cv.acquire()
+        self.cv.notify()
+        self.cv.release()
 
     def run(self):
         self.b_run = True
@@ -399,18 +424,15 @@ class processThread(threading.Thread):
         chunk_pos = 0             # position in chunk
         # collect sampling data, call process() when ever get sz_chunk data
         while self.b_run:
-#            print('Thread ', self.name, ' 1')
             try:
                 s = self.buf_que.get(True, 0.1)
             except Queue.Empty:
                 s = []
-#            print('Thread ', self.name, ' 2')
             if (s == []):
                 continue
             s = s[0, :]                    # select left channel
             s_pos = 0
             # `s` cross boundary
-#            print('Thread ', self.name, ' 3')
             while sz_chunk - chunk_pos <= len(s) - s_pos:
                 s_chunk[chunk_pos:] = s[s_pos : s_pos+sz_chunk-chunk_pos]
                 s_pos += sz_chunk-chunk_pos
@@ -418,7 +440,6 @@ class processThread(threading.Thread):
                 chunk_pos = sz_chunk - self.sz_hop
                 s_chunk[0:chunk_pos] = s_chunk[self.sz_hop:]
 
-#            print('Thread ', self.name, ' 4')
             s_chunk[chunk_pos : chunk_pos+len(s)-s_pos] = s[s_pos:]   # s is fit into chunk
             chunk_pos += len(s)-s_pos
         print('Thread ', self.name, ' exited.')
@@ -443,6 +464,9 @@ if len(sys.argv) > 3:
 # buffer that transmit data from recorder to processor
 buf_queue = Queue.Queue(10000)
 
+# lock for UI thread
+condition_variable = threading.Condition()
+
 # prepare recorder
 print("using device: ", pcm_device)
 if pcm_device == 'default':
@@ -456,10 +480,10 @@ else:
 analyzer_data = analyzerData(size_chunk, rec_thread, n_ave)
 
 # init ploter
-plot_audio = plotAudio(analyzer_data)
+plot_audio = plotAudio(analyzer_data, condition_variable)
 
 # init data dispatcher
-process_thread = processThread('dispatch', buf_queue, plot_audio, size_chunk, size_chunk/2)
+process_thread = processThread('dispatch', buf_queue, condition_variable, size_chunk, size_chunk/2)
 process_thread.start()
 
 rec_thread.start()
