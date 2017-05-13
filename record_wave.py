@@ -198,7 +198,7 @@ class analyzerData():
                     fq_db = map(float, l.split())
                     calib_orig.append(fq_db)
                 else:
-                    print('Ignored line: %s' % (l))
+                    print('loadCalib: ignored: %s' % (l))
         
         if len(calib_orig) == 0 or (np.array(map(len, calib_orig))-2).any():
             # abnormal calibration file
@@ -303,6 +303,58 @@ class plotAudio:
         self.cv = condition_variable
         self.fig, self.ax = plt.subplots(2, 1)
 
+        self.drawBackground()
+        self.saveBackground()
+        
+        self.event_cids = [ \
+            self.fig.canvas.mpl_connect('resize_event', self.onResize), \
+            self.fig.canvas.mpl_connect('close_event', self.onClose), \
+            self.fig.canvas.mpl_connect('key_press_event', self.onPressed)]
+
+    def __del__(self):
+        if hasattr(self, 'event_cids'):
+            for cid in self.event_cids:
+                self.fig.canvas.mpl_disconnect(cid)
+        
+    def onResize(self, event):
+        self.saveBackground()
+    
+    def onClose(self, event):
+        self.b_run = False
+        with self.cv:
+            self.cv.notify()
+    
+    def onPressed(self, event):
+        if not event: return
+        print('you pressed', event.key, event.xdata, event.ydata)
+        k = event.key
+        if k == 'h':  # help
+            print('a: toggle dBA or dB\nf2: toggle RMS sine or square normalize\nf3: Load/unload calibration\nq: exit')
+        elif k == 'a':
+            global use_dBA
+            use_dBA = not use_dBA
+            analyzer_data.use_dBA = use_dBA
+            print('Toggled dBA or dB')
+        elif k == 'f2':
+            set_RMS_normalize_factor(not RMS_normalize_to_sine)
+            print('RMS sine or square')
+        elif k == 'f3':
+            ad = self.analyzer_data
+            if len(ad.calib_db) == 0:
+                print('Load calib: %s' % (calib_path))
+                ad.loadCalib(calib_path)
+            else:
+                print('Unload calib.')
+                ad.loadCalib('')
+            self.drawBackground()
+            self.saveBackground()
+        elif k == 'q':
+            self.onClose(None)
+    
+    def drawBackground(self):
+        analyzer_data = self.analyzer_data
+        self.ax[0].clear()
+        self.ax[1].clear()
         # init volt draw
         self.plt_line, = self.ax[0].plot([], [], 'b')
         self.ax[0].set_xlim(0, size_chunk / analyzer_data.sample_rate)
@@ -322,33 +374,11 @@ class plotAudio:
         self.spectrum_line.set_animated(True)
         self.text_2.set_animated(True)
         # calib line
-#        if len(analyzer_data.calib_db) > 0:
-        if len(analyzer_data.calib_db) > 0:
-            calib = analyzer_data.calib_db
-        else:
-            calib = np.zeros(len(analyzer_data.fqs))
+        calib = analyzer_data.calib_db if len(analyzer_data.calib_db) \
+            else np.zeros(len(analyzer_data.fqs))
         fqs = analyzer_data.fqs
         sp = -calib + white_signal.spectrumLevel(analyzer_data.wnd)
         self.ax[1].plot(fqs, sp, 'r')
-        
-        self.saveBackground()
-        
-        self.event_cids = [ \
-            self.fig.canvas.mpl_connect('resize_event', self.onResize), \
-            self.fig.canvas.mpl_connect('close_event', self.onClose)]
-
-    def __del__(self):
-        if hasattr(self, 'event_cids'):
-            for cid in self.event_cids:
-                self.fig.canvas.mpl_disconnect(cid)
-        
-    def onResize(self, event):
-        self.saveBackground()
-    
-    def onClose(self, event):
-        self.b_run = False
-        with self.cv:
-            self.cv.notify()
     
     def saveBackground(self):
         # For blit
@@ -490,12 +520,19 @@ for opt, arg in options:
         RMS_normalize_to_sine = True
 
 # Note: RMS(sine) + 10*log10(2) = RMS(square)
-if RMS_normalize_to_sine:
-    RMS_sine_factor = 2.0
-    RMS_db_sine_inc = 10*log10(2.0)
-else:
-    RMS_sine_factor = 1.0
-    RMS_db_sine_inc = 0.0
+def set_RMS_normalize_factor(RMS_sine):
+    global RMS_sine_factor
+    global RMS_db_sine_inc
+    global RMS_normalize_to_sine
+    if RMS_sine:
+        RMS_sine_factor = 2.0
+        RMS_db_sine_inc = 10*log10(2.0)
+    else:
+        RMS_sine_factor = 1.0
+        RMS_db_sine_inc = 0.0
+    RMS_normalize_to_sine = RMS_sine
+
+set_RMS_normalize_factor(RMS_normalize_to_sine)
 
 # buffer that transmit data from recorder to processor
 buf_queue = Queue.Queue(10000)
