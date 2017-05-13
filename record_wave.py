@@ -52,14 +52,6 @@ class cosSignal:
         self.t0 += size
         return sample_d.reshape((1, size))
 
-# Note: RMS(sine) + 10*log10(2) = RMS(square)
-
-RMS_normalize_to_sine = False
-if RMS_normalize_to_sine:
-    RMS_db_sine_inc = 10*log10(2)
-else:
-    RMS_db_sine_inc = 0
-
 class whiteSignal:
     """ white noise generator """
     def get(self, size):
@@ -154,7 +146,7 @@ class analyzerData():
         self.wnd = 0.5 + 0.5 * np.cos((np.arange(1, sz_chunk+1) / (sz_chunk+1.0) - 0.5) * 2 * np.pi)
 #        self.wnd = np.ones(sz_chunk)
         self.wnd *= len(self.wnd) / sum(self.wnd)
-        self.wnd_factor = 2.0 / sum(self.wnd) ** 2   # 1*sin(t) = 0 dBFS
+        self.wnd_factor = RMS_sine_factor * 2.0 / sum(self.wnd) ** 2
         # factor for dBA
         sqr = lambda x: x*x
         fqs = 1.0 * np.arange(len(self.sp_vo)) / self.sz_fft * self.sample_rate
@@ -228,7 +220,7 @@ class analyzerData():
             self.lock_data.release()
             self.sp_cumulate[:] = 0
         
-        self.rms = sqrt(sum(self.v ** 2) / len(self.v))
+        self.rms = sqrt(RMS_sine_factor * sum(self.v ** 2) / len(self.v))
 
     def getV(self):
         self.lock_data.acquire()
@@ -244,7 +236,7 @@ class analyzerData():
 
     def getRMS_dB(self):
         np.seterr(divide='ignore')       # for God's sake
-        return 20*log10(self.rms) + RMS_db_sine_inc
+        return 20*log10(self.rms)  # already count RMS_db_sine_inc
 
     def getFFTRMS_dBA(self):
         self.lock_data.acquire()
@@ -312,10 +304,14 @@ class plotAudio:
         self.spectrum_line.set_animated(True)
         self.text_2.set_animated(True)
         # calib line
+#        if len(analyzer_data.calib_db) > 0:
         if len(analyzer_data.calib_db) > 0:
-            fqs = analyzer_data.fqs
-            sp = -analyzer_data.calib_db + white_signal.spectrumLevel(analyzer_data.wnd)
-            self.ax[1].plot(fqs, sp, 'r')
+            calib = analyzer_data.calib_db
+        else:
+            calib = np.zeros(len(analyzer_data.fqs))
+        fqs = analyzer_data.fqs
+        sp = -calib + white_signal.spectrumLevel(analyzer_data.wnd)
+        self.ax[1].plot(fqs, sp, 'r')
         
         self.saveBackground()
         
@@ -324,8 +320,9 @@ class plotAudio:
             self.fig.canvas.mpl_connect('close_event', self.onClose)]
 
     def __del__(self):
-        for cid in self.event_cids:
-            self.fig.canvas.mpl_disconnect(cid)
+        if hasattr(self, 'event_cids'):
+            for cid in self.event_cids:
+                self.fig.canvas.mpl_disconnect(cid)
         
     def onResize(self, event):
         self.saveBackground()
@@ -371,7 +368,9 @@ class plotAudio:
             return
 
         analyzer_data = self.analyzer_data
-        print("\rRMS: % 5.2f dB, % 5.2f dBA    " % (analyzer_data.getRMS_dB(), analyzer_data.getFFTRMS_dBA()), end='')
+        str_normalize = '(sine=0dB)' if RMS_normalize_to_sine else '(square=0dB)'
+        str_dBA = 'dBA' if use_dBA else 'dB'
+        print("\rRMS: % 5.2f dB, % 5.2f %s %s   " % (analyzer_data.getRMS_dB(), analyzer_data.getFFTRMS_dBA(), str_dBA, str_normalize), end='')
         sys.stdout.flush()
         
         self.fig.canvas.restore_region(self.backgrounds[0])
@@ -445,17 +444,40 @@ class processThread(threading.Thread):
 # main
 
 # parse input parameters
+import getopt
+param_fmt_short = 'd:n:l:'
+param_fmt_long = ['device=', 'n-ave=', 'fftlen=', 'calib=', 'dBA', 'db-sine']
+options, options_other = getopt.getopt(sys.argv[1:], param_fmt_short, param_fmt_long)
+
+# default values
 pcm_device = 'default'
-if len(sys.argv) > 1:
-    pcm_device = sys.argv[1]
-
 size_chunk = 16384
-if len(sys.argv) > 2:
-    size_chunk = int(sys.argv[2])
-
 n_ave = 1
-if len(sys.argv) > 3:
-    n_ave = int(sys.argv[3])
+calib_path = ''
+use_dBA = False
+RMS_normalize_to_sine = False
+
+for opt, arg in options:
+    if opt in ('-d', '--device'):
+        pcm_device = arg
+    elif opt in ('-l', '--fftlen'):
+        size_chunk = int(arg)
+    elif opt in ('-n', '--n-ave'):
+        n_ave = int(arg)
+    elif opt == '--calib':
+        calib_path = arg
+    elif opt == '--dBA':
+        use_dBA = True
+    elif opt == '--db-sine':
+        RMS_normalize_to_sine = True
+
+# Note: RMS(sine) + 10*log10(2) = RMS(square)
+if RMS_normalize_to_sine:
+    RMS_sine_factor = 2.0
+    RMS_db_sine_inc = 10*log10(2.0)
+else:
+    RMS_sine_factor = 1.0
+    RMS_db_sine_inc = 0.0
 
 # buffer that transmit data from recorder to processor
 buf_queue = Queue.Queue(10000)
@@ -474,8 +496,8 @@ else:
 
 # init analyzer data
 analyzer_data = analyzerData(size_chunk, rec_thread, n_ave)
-analyzer_data.loadCalib('99-21328.txt')
-analyzer_data.use_dBA = True
+analyzer_data.loadCalib(calib_path)
+analyzer_data.use_dBA = use_dBA
 
 # lock for UI thread
 condition_variable = threading.Condition()
