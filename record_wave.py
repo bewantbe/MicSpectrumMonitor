@@ -9,6 +9,9 @@ import Queue
 import threading
 
 import numpy as np
+from numpy import log10
+from numpy import sqrt
+from numpy import sum
 
 # https://larsimmisch.github.io/pyalsaaudio/
 import alsaaudio
@@ -49,10 +52,24 @@ class cosSignal:
         self.t0 += size
         return sample_d.reshape((1, size))
 
+# Note: RMS(sine) + 10*log10(2) = RMS(square)
+
+RMS_normalize_to_sine = False
+if RMS_normalize_to_sine:
+    RMS_db_sine_inc = 10*log10(2)
+else:
+    RMS_db_sine_inc = 0
+
 class whiteSignal:
     """ white noise generator """
     def get(self, size):
         return np.random.rand(1, size)*2-1
+    
+    def spectrumLevel(self, wnd):
+        return 10*log10(1.0/3*sum(wnd**2)*2/sum(wnd)**2) + RMS_db_sine_inc
+    
+    def RMS(self):
+        return 10*log10(1.0/3) + RMS_db_sine_inc
 
 cos_signal = cosSignal(1000, 48000)
 white_signal = whiteSignal()
@@ -134,20 +151,21 @@ class analyzerData():
         self.ave_num = ave_num       # number of averages to get one spectrum
         self.lock_data = threading.Lock()
         # window function
-        self.wnd = 0.5 + 0.5 * np.cos((np.arange(1, sz_chunk+1) / (sz_chunk+1.0) - 0.5) * 2 * np.pi)
-        self.wnd *= len(self.wnd) / np.sum(self.wnd)
-        self.wnd_factor = 4.0 / np.sum(self.wnd) ** 2   # 1*sin(t) = 0 dBFS
+#        self.wnd = 0.5 + 0.5 * np.cos((np.arange(1, sz_chunk+1) / (sz_chunk+1.0) - 0.5) * 2 * np.pi)
+        self.wnd = np.ones(sz_chunk)
+        self.wnd *= len(self.wnd) / sum(self.wnd)
+        self.wnd_factor = 2.0 / sum(self.wnd) ** 2   # 1*sin(t) = 0 dBFS
         # factor for dBA
         sqr = lambda x: x*x
         fqs = 1.0 * np.arange(len(self.sp_vo)) / self.sz_fft * self.sample_rate
         self.fqs = fqs
-        r = sqr(12194.0)*sqr(sqr(fqs)) / ((fqs*fqs+sqr(20.6)) * np.sqrt((fqs*fqs+sqr(107.7)) * (fqs*fqs+sqr(737.9))) * (fqs*fqs+sqr(12194.0)))
+        r = sqr(12194.0)*sqr(sqr(fqs)) / ((fqs*fqs+sqr(20.6)) * sqrt((fqs*fqs+sqr(107.7)) * (fqs*fqs+sqr(737.9))) * (fqs*fqs+sqr(12194.0)))
         self.dBAFactor = r * r * 10 ** (1/5.0)
-        self.calib_fqs_db = []
-        self.calib_fqs_pow = []
+        self.calib_db = []
+        self.calib_pow = []
         self.calib_centre_freq = []
         self.calib_centre_db = []
-#        self.loadCalib('99-21328.txt')
+        self.loadCalib('99-21328.txt')
 
     def loadCalib(self, fname):
         calib_file_type = ''
@@ -173,8 +191,8 @@ class analyzerData():
             print('File "%s" format not recognized.' % (fname))
             return
         calib_orig = np.array(calib_orig).T
-	self.calib_fqs_db = np.interp(self.fqs, calib_orig[0], calib_orig[1])
-	self.calib_fqs_pow = 10 ** (self.calib_fqs_db / 10)
+	self.calib_db = np.interp(self.fqs, calib_orig[0], calib_orig[1])
+	self.calib_pow = 10 ** (self.calib_db / 10)
 	print('Using calibration file "%s": %d entries' % (fname, len(calib_orig[0])))
 
     def put(self, data):
@@ -186,8 +204,8 @@ class analyzerData():
         # spectrum
         tmp_amp = np.fft.rfft(self.v * self.wnd, self.sz_fft)
         tmp_pow = (tmp_amp * tmp_amp.conj()).real * self.wnd_factor
-        if len(self.calib_fqs_db) > 0:
-            tmp_pow /= self.calib_fqs_pow
+        if len(self.calib_db) > 0:
+            tmp_pow /= self.calib_pow
         if self.sz_fft % 2 == 0:
             tmp_pow = np.concatenate([[tmp_pow[0]/2], tmp_pow[1:-1], [tmp_pow[-1]/2]])
         else:
@@ -202,11 +220,11 @@ class analyzerData():
             if False:  # need dBA
                 self.sp_vo *= self.dBAFactor
             np.seterr(divide='ignore')       # for God's sake
-            self.sp_db = 10 * np.log10(self.sp_vo)  #  in dB
+            self.sp_db = 10 * log10(self.sp_vo)  #  in dB
             self.lock_data.release()
             self.sp_cumulate[:] = 0
         
-        self.rms = np.sqrt(np.sum(self.v ** 2) / len(self.v))
+        self.rms = sqrt(sum(self.v ** 2) / len(self.v))
 
     def getV(self):
         self.lock_data.acquire()
@@ -222,14 +240,14 @@ class analyzerData():
 
     def getRMS_dB(self):
         np.seterr(divide='ignore')       # for God's sake
-        return 20*np.log10(self.rms) + 10*np.log10(2)
+        return 20*log10(self.rms) + RMS_db_sine_inc
 
     def getFFTRMS_dBA(self):
         self.lock_data.acquire()
-        fft_rms = np.sqrt(2 * np.sum(self.sp_vo) / self.wnd_factor / self.sz_fft / np.sum(self.wnd ** 2))
+        fft_rms = sqrt(2 * sum(self.sp_vo) / self.wnd_factor / self.sz_fft / sum(self.wnd ** 2))
         self.lock_data.release()
         np.seterr(divide='ignore')       # for God's sake
-        return 20*np.log10(fft_rms) + 10*np.log10(2)
+        return 20*log10(fft_rms) + RMS_db_sine_inc
 
 class FPSLimiter:
     """ fps limiter """
@@ -246,7 +264,7 @@ class FPSLimiter:
             self.time_to_update = time_now + self.dt
         return True
 
-fps_lim1 = FPSLimiter(10)
+fps_lim1 = FPSLimiter(3)
 
 # py plot
 # http://matplotlib.org/api/pyplot_api.html#matplotlib.pyplot.plot
@@ -280,12 +298,29 @@ class plotAudio:
         # init spectum draw
         self.spectrum_line, = self.ax[1].plot([], [], 'b')
         self.ax[1].set_xlim(1, analyzer_data.sample_rate / 2)
-        self.ax[1].set_ylim(-140, 1)
+#        self.ax[1].set_ylim(-140, 1)
+        self.ax[1].set_ylim(-43, -33)
         self.ax[1].set_xscale('log')
         self.text_2 = self.ax[1].text(0.0, 0.91, '', transform=self.ax[1].transAxes)
         self.spectrum_line.set_animated(True)
         self.text_2.set_animated(True)
+        # calib line
+        if len(analyzer_data.calib_db) > 0:
+            fqs = analyzer_data.fqs
+            sp = -analyzer_data.calib_db + white_signal.spectrumLevel(analyzer_data.wnd)
+            self.ax[1].plot(fqs, sp, 'r')
         
+        self.saveBackground()
+        
+        self.event_cid = self.fig.canvas.mpl_connect('resize_event', self.onResize)
+
+    def __del__(self):
+        self.fig.canvas.mpl_disconnect(self.event_cid)
+        
+    def onResize(self, event):
+        self.saveBackground()
+    
+    def saveBackground(self):
         # For blit
         # http://stackoverflow.com/questions/8955869/why-is-plotting-with-matplotlib-so-slow
         # http://scipy-cookbook.readthedocs.io/items/Matplotlib_Animations.html
@@ -400,7 +435,7 @@ size_chunk = 16384
 if len(sys.argv) > 2:
     size_chunk = int(sys.argv[2])
 
-n_ave = 1;
+n_ave = 1
 if len(sys.argv) > 3:
     n_ave = int(sys.argv[3])
 
