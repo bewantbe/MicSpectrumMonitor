@@ -574,7 +574,7 @@ while b_start:
         rec_thread = recThread('rec', buf_queue, 'hw:CARD=U18dB,DEV=0', \
             2, 48000, 1024, alsaaudio.PCM_FORMAT_S24_LE)
     else:
-        rec_thread = recThread('rec', buf_queue, device, \
+        rec_thread = recThread('rec', buf_queue, pcm_device, \
             1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
 
     # init analyzer data
