@@ -210,6 +210,7 @@ class analyzerData():
 	print('Using calibration file "%s": %d entries' % (fname, len(calib_orig[0])))
 
     def put(self, data):
+        if len(self.v) != len(data): return
         # volt trace
         self.lock_data.acquire()
         self.v[:] = 1.0 * data[:]    # save a copy, minize lock time
@@ -326,6 +327,9 @@ class plotAudio:
     
     def onPressed(self, event):
         if not event: return
+        global b_start
+        global size_chunk
+        global n_ave
         print('you pressed', event.key, event.xdata, event.ydata)
         k = event.key
         if k == 'h':  # help
@@ -348,6 +352,22 @@ class plotAudio:
                 ad.loadCalib('')
             self.drawBackground()
             self.saveBackground()
+        elif k == '-':
+            b_start = True
+            self.onClose(None)
+            if size_chunk > 256: size_chunk = int(size_chunk/2)
+        elif k == '=' or k == '+':
+            b_start = True
+            self.onClose(None)
+            size_chunk *= 2
+        elif k == '[':
+            b_start = True
+            self.onClose(None)
+            if n_ave > 1: n_ave = int(n_ave/2)
+        elif k == ']':
+            b_start = True
+            self.onClose(None)
+            n_ave *= 2
         elif k == 'q':
             self.onClose(None)
     
@@ -445,6 +465,7 @@ class plotAudio:
             with self.cv:
                 self.cv.wait()
             self.graph_update()    # need lock or not?
+        plt.close(self.fig)
 
 class processThread(threading.Thread):
     """ data dispatch thread """
@@ -539,39 +560,44 @@ set_RMS_normalize_factor(RMS_normalize_to_sine)
 # buffer that transmit data from recorder to processor
 buf_queue = Queue.Queue(10000)
 
-# prepare recorder
-print("using device: ", pcm_device)
-if pcm_device == 'default':
-    rec_thread = recThread('rec', buf_queue, 'default', \
-        1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
-elif pcm_device == 'hw:CARD=U18dB,DEV=0':
-    rec_thread = recThread('rec', buf_queue, 'hw:CARD=U18dB,DEV=0', \
-        2, 48000, 1024, alsaaudio.PCM_FORMAT_S24_LE)
-else:
-    rec_thread = recThread('rec', buf_queue, device, \
-        1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
+b_start = True
+while b_start:
+    b_start = False
+    print("FFT len:", size_chunk)
+    print("  n_ave:", n_ave)
+    # prepare recorder
+    print("using device: ", pcm_device)
+    if pcm_device == 'default':
+        rec_thread = recThread('rec', buf_queue, 'default', \
+            1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
+    elif pcm_device == 'hw:CARD=U18dB,DEV=0':
+        rec_thread = recThread('rec', buf_queue, 'hw:CARD=U18dB,DEV=0', \
+            2, 48000, 1024, alsaaudio.PCM_FORMAT_S24_LE)
+    else:
+        rec_thread = recThread('rec', buf_queue, device, \
+            1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
 
-# init analyzer data
-analyzer_data = analyzerData(size_chunk, rec_thread, n_ave)
-analyzer_data.loadCalib(calib_path)
-analyzer_data.use_dBA = use_dBA
+    # init analyzer data
+    analyzer_data = analyzerData(size_chunk, rec_thread, n_ave)
+    analyzer_data.loadCalib(calib_path)
+    analyzer_data.use_dBA = use_dBA
 
-# lock for UI thread
-condition_variable = threading.Condition()
+    # lock for UI thread
+    condition_variable = threading.Condition()
 
-# init ploter
-plot_audio = plotAudio(analyzer_data, condition_variable)
+    # init ploter
+    plot_audio = plotAudio(analyzer_data, condition_variable)
 
-# init data dispatcher
-process_thread = processThread('dispatch', buf_queue, condition_variable, size_chunk, size_chunk/2)
-process_thread.start()
+    # init data dispatcher
+    process_thread = processThread('dispatch', buf_queue, condition_variable, size_chunk, size_chunk/2)
+    process_thread.start()
 
-rec_thread.start()
+    rec_thread.start()
 
-plot_audio.show()
+    plot_audio.show()
 
-rec_thread.b_run = False
-process_thread.b_run = False
+    rec_thread.b_run = False
+    process_thread.b_run = False
 
 print('\nExiting...')
 
