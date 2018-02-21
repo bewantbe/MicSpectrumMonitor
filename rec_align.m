@@ -5,6 +5,8 @@ x1=[];
 if ~exist('x1', 'var') || isempty(x1)
     fname1 = 'c51_imm6_vol20000.wav';
     fname2 = 'c52_umik1_vol65536.wav';
+    fname1 = 'o2_umik_vol65536_02.wav';
+    fname2 = 'o1_pmik_vol16630_02.wav';
 
     fprintf('reading ...');fflush(stdout); tic;
     [x1 sr1] = wavread(fname1);
@@ -15,7 +17,7 @@ if ~exist('x1', 'var') || isempty(x1)
 end
 
 % time aligment
-shift1 = floor(1024/4 * -446.815);
+shift1 = -floor(1024/4 * -186.8);
 if shift1 >= 0
   x1 = x1(1:end-shift1);
   x2 = x2(1+shift1:end);
@@ -40,8 +42,8 @@ c = 0;
 for iv = 2:size(xf1,1)     % number of frequency points
     v1 = p2db(abs(xf1(iv, :)) .^ 2);
     v2 = p2db(abs(xf2(iv, :)) .^ 2);
-    v1 = reL(v1 - f_error_level(v1) - 5);
-    v2 = reL(v2 - f_error_level(v2) - 5);
+    v1 = reL(v1 - f_error_level(v1) - 6);
+    v2 = reL(v2 - f_error_level(v2) - 6);
 
     v1 = expm1(0.5*log(10)*(v1/10));
     v2 = expm1(0.5*log(10)*(v2/10));
@@ -50,15 +52,17 @@ for iv = 2:size(xf1,1)     % number of frequency points
 end
 
 figure(15);
-cid = [0:floor((length(c)+1)/2) (floor((length(c)+1)/2)+1:length(c)-1) - length(c)];
+cid = [0:floor((length(c)+1)/2)-1 (floor((length(c)+1)/2):length(c)-1) - length(c)];
 plot(fftshift(cid), fftshift(c), '-*');
 xlim([-50,50]);
+
+max_ifq = [~,id]=max(c); cid(id)
 
 iv = round(size(xf1,1)/2/5);
     v1 = p2db(abs(xf1(iv, :)) .^ 2);
     v2 = p2db(abs(xf2(iv, :)) .^ 2);
-    v1 = reL(v1 - f_error_level(v1) - 5);
-    v2 = reL(v2 - f_error_level(v2) - 5);
+    v1 = reL(v1 - f_error_level(v1) - 6);
+    v2 = reL(v2 - f_error_level(v2) - 6);
 
     v1 = expm1(0.5*log(10)*(v1/10));
     v2 = expm1(0.5*log(10)*(v2/10));

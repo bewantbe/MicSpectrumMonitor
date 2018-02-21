@@ -28,8 +28,14 @@ sleep 3; arecord -vv --dump-hw-params -D 'default' -f S16_LE -r 48000 -c 1 --dur
 %fname1 = 'c02_xde_umik1_id3270_vol26090.wav';
 %fname2 = 'rec2017-05-09_12h20m59.545s_sm_imm6-id4.wav';
 
-fname1 = 'c51_imm6_vol20000.wav';
-fname2 = 'c52_umik1_vol65536.wav';
+%fname1 = 'c51_imm6_vol20000.wav';
+%fname2 = 'c52_umik1_vol65536.wav';
+
+%fname1 = 'r1_umik_11.wav';
+%fname2 = 'r1_pmik_11.wav';
+
+fname1 = 'o2_umik_vol65536_02.wav';
+fname2 = 'o1_pmik_vol16630_02.wav';
 
 fprintf('reading ...');fflush(stdout); tic;
 [x1 sr1] = wavread(fname1);
@@ -37,8 +43,11 @@ fprintf('reading ...');fflush(stdout); tic;
 x1 = x1(:,1);
 x2 = x2(:,1);
 
-% time aligment
-shift1 = floor(1024/4 * -446.815);
+x1 = x1 * (10 ^ (-3.0/10));
+
+% time aligment, c51 - c52
+%shift1 = floor(1024/4 * -446.815);
+shift1 = -floor(1024/4 * -186.8);
 if shift1 >= 0
   x1 = x1(1:end-shift1);
   x2 = x2(1+shift1:end);
@@ -50,12 +59,8 @@ end
 
 fprintf(' done. (t = %.3f sec)\n', toc);fflush(stdout);
 
-%x1 = x1 * (10 ^ (2.4/10));  % cell phone adjust to match volume 9000
-
-x1 = x1 * (10 ^ (3.5/10));
-
-x1 = x1(round(end/3):round(end*2/3));
-x2 = x2(round(end/3):round(end*2/3));
+x1 = x1(round(end/4):round(end*3/4));
+x2 = x2(round(end/4):round(end*3/4));
 
 %whitening_od = 3;
 %fprintf('filtering ...');fflush(stdout); tic;
@@ -91,8 +96,19 @@ fqs2 = fqs2(1:end/2) * sr2;
 s2   = 10*log10(s2(1:end/2));
 fprintf('    ... done 2 (t = %.3f sec)\n', toc);fflush(stdout);
 
+calib1 = csvread('7023270.txt', 1, 0);
+calib1 = [real(calib1) imag(calib1)];
+calib1_db = interp1(calib1(:,1), calib1(:,2), fqs1);
+
+calib2 = csvread('8000348.txt', 1, 0);
+calib2 = [real(calib2) imag(calib2)];
+calib2_db = interp1(calib2(:,1), calib2(:,2), fqs2);
+
+s1_ = s1 - calib1_db;
+s2_ = s2 - calib2_db;
+
 figure(1);
-plot(fqs1, s1, fqs2, s2);
+plot(fqs1, s1, fqs2, s2, fqs1, s1_, fqs2, s2_);
 h = legend(fname1, fname2);
 set(h, 'Interpreter', 'none');
 

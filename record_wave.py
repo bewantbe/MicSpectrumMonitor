@@ -31,7 +31,7 @@ pacmd set-source-output-volume `pacmd list-source-outputs | grep index | cut -c 
 pacmd set-source-volume 1 6554 && pacmd list-sources | grep volume
 """
 
-# xde: UMIK-1 vol=65536 (0 dB) <-dBA-> PMIK-1 vol=16800 (-35.47 dB)
+# xde: UMIK-1 vol=65536 (0 dB) <-dBA-> PMIK-1 vol=16630 (-35.74 dB)
 # xde: UMIK-1 vol=65536 (0 dB) <-dBA-> iMM-6 id=8, vol=16800 + 6.2 dB
 # xde: UMIK-1 vol=65536 (0 dB) <-dBA-> iMM-6 id=8, vol=21000 (-29.66 dB)
 
