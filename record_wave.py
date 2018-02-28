@@ -121,7 +121,7 @@ class periodLoopDetector:
                 min_k = k
         self.period_error = min_s
         self.period_guess = min_k
-        return (min_s < self.error_thres, min_k)
+        return (min_s < self.error_thres, min_k, min_s)
 
 class overrunChecker:
     """ Check audio buffer for returning less data then expected """
@@ -136,6 +136,13 @@ class overrunChecker:
         self.buffer_sample_size = _buffer_sample_size
         self.sample_rate_est = _sample_rate
         self.last_check_overrun = False
+        self.pld = periodLoopDetector(5, 2)
+        # private varialbes
+        self.cnt = 0
+        self.period_guess = 1
+        self.n_total_samples_old = self.n_total_samples
+        self.period_error_array = array.array('d', [0.0]*len(self.pld.buffer))
+        self.__t_old = 0
 
     def start(self):
         self.n_total_samples = 0
@@ -147,7 +154,6 @@ class overrunChecker:
     def printStat(self, n_samples_from_time):
         f1 = n_samples_from_time / self.sample_rate_est
         f2 = self.n_total_samples / self.sample_rate_est
-        
         print("  Time: %s" % time.strftime("%F %T", time.gmtime(time.time())))
         print("  Should read %.0f = %.3f sec." % (n_samples_from_time, f1))
         print("  Actual read %.0f = %.3f sec." % (self.n_total_samples, f2))
@@ -160,16 +166,26 @@ class overrunChecker:
         time_now = time.time()
         if self.n_total_samples == 0:
             self.time_started = time_now - n_read_samples / self.sample_rate
-        #print("sr: %.1f Hz" % ((n_read_samples-self.n_total_samples) / (time_now - self.time_update_old)));
         self.n_total_samples += n_read_samples
-        if self.time_update_old + self.time_update_interval > time_now:
-            return
-        self.time_update_old += self.time_update_interval
-        # Catch up with current time, so that at most one output per call.
-        if self.time_update_old + self.time_update_interval <= time_now:
-            time_update_old = time_now  
 
-        print("sr: %.1f Hz" % (self.sample_rate_est));
+        print("\ninst sr: %.1f Hz" % (n_read_samples / (time_now - self.__t_old)));
+        self.__t_old = time_now
+
+        # Ensure exact multiples of period_guess, to increase sampling rate 
+        # estimation accuracy.
+        self.cnt += 1
+        ok, p, w = self.pld.append(time_now)  
+        self.period_error_array[p-1] += 1
+        if self.time_update_old + self.time_update_interval > time_now \
+          or self.cnt % self.period_guess != 0:
+            return
+        self.cnt = 0
+        self.period_guess = max(range(len(self.period_error_array)), key=self.period_error_array.__getitem__) + 1
+        for j in range(len(self.period_error_array)):
+            self.period_error_array[j] = 0
+
+        print("\nintv sr: %.1f Hz (p=%d)" % ((self.n_total_samples - self.n_total_samples_old) / (time_now - self.time_update_old), self.period_guess));
+        print(" est sr: %.1f Hz" % (self.sample_rate_est));
 
         # Check if recorder buffer overrun occur.
         n_samples_from_time = (time_now - self.time_started) * self.sample_rate_est
@@ -191,6 +207,12 @@ class overrunChecker:
                 print("Overrun counter reset.")
 
         self.last_check_overrun = self.last_overrun_time == time_now
+        
+        self.time_update_old += self.time_update_interval
+        # Catch up with current time, so that at most one output per call.
+        if self.time_update_old + self.time_update_interval <= time_now:
+            self.time_update_old = time_now  
+        self.n_total_samples_old = self.n_total_samples
 
     def getLastCheckOverrun(self):
         return self.last_check_overrun
