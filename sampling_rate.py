@@ -1,9 +1,14 @@
+from __future__ import print_function
 import time
 import struct
 import alsaaudio
+import math
 import numpy as np
 
 from recmonitor import shortPeriodDectector, overrunChecker
+
+def log10(x):
+    return math.log10(x) if x>0 else float('-inf') if x==0 else float('nan')
 
 class recThread:
     """ Recorder thread """
@@ -17,12 +22,20 @@ class recThread:
         self.periodsize  = periodsize
         self.format = format
         self.b_run = False
+        self.sample_bits = 16 if self.format == alsaaudio.PCM_FORMAT_S16_LE else 24
+        self.sample_maxp1 = 2 ** (self.sample_bits-1)
     
     def decode_raw_samples(self, data):
         b = bytearray(data)
         if self.format == alsaaudio.PCM_FORMAT_S16_LE:
             # S16_LE
-            sample_s = struct.unpack_from('%dh'%(len(data)/2/self.n_channels), b)
+            #for j in range(len(data)):
+                #print("d[%4d] = % 5d,    " % (j, ord(data[j])), end='')
+            #print("")
+            sample_s = struct.unpack_from('%dh'%(len(data)/2), b)
+            #for j in range(len(sample_s)):
+                #print("v[%4d] = % 5d,    " % (j, sample_s[j]), end='')
+            #print("")
             sample_d = np.array(sample_s) / 32768.0
         else:
             # S24_3LE
@@ -32,7 +45,7 @@ class recThread:
                 sample_d[i] = v - ((v & 0x800000) << 1)
             sample_d /= 0x1000000 * 1.0
         # separate channels
-        sample_d = sample_d.reshape((len(sample_d)/self.n_channels, self.n_channels)).T
+        sample_d = sample_d.reshape((len(sample_d)/self.n_channels, self.n_channels))
         return sample_d
 
     def run(self):
@@ -53,6 +66,8 @@ class recThread:
             if l < 0:
                 print("recorder overrun at t = %.3f sec, some samples are lost." % (time.time()))
                 continue
+            if l * self.n_channels * self.sample_bits/8 != len(data):
+                raise IOError('number of channel or sample size do not match')
             overrun_checker.updateState(l)
             if l < self.periodsize:
                 print("\nread sample: %d, requested: %d" \
@@ -60,6 +75,20 @@ class recThread:
             if l == 0:
                 continue
             sample_d = self.decode_raw_samples(data)
+            #sample_d = sample_d[:,0]
+            rms = (np.sum(sample_d ** 2, 0) / sample_d.shape[0])**(1.0/2)
+            m1 = np.max(sample_d, 0) * self.sample_maxp1
+            m2 = np.min(sample_d, 0) * self.sample_maxp1
+            #print("l = %d, datalen = %d" % (l, len(data)), ", shape = ", sample_d.shape)
+            print("RMS: %7.2f dB, maxmin = (%5.0f,%5.0f)" % \
+                    (20*log10(rms[0]), m1[0], m2[0]))
+            if len(rms)>1:
+                print("RMS: %7.2f dB, maxmin = (%5.0f,%5.0f)" % \
+                        (20*log10(rms[1]), m1[1], m2[1]))
 
-rec = recThread('default', 1, 48000, 1024)
+d = 'default'
+d = 'hw:CARD=PCH,DEV=0'
+d = 'hw:CARD=Device,DEV=0'
+rec = recThread(d, 1, 48000, 1024)
 rec.run()
+

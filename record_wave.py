@@ -89,7 +89,7 @@ class recThread(threading.Thread):
         b = bytearray(data)
         if self.format == alsaaudio.PCM_FORMAT_S16_LE:
             # S16_LE
-            sample_s = struct.unpack_from('%dh'%(len(data)/2/self.n_channels), b)
+            sample_s = struct.unpack_from('%dh'%(len(data)/2), b)
             sample_d = np.array(sample_s) / 32768.0
         else:
             # S24_3LE
@@ -120,6 +120,8 @@ class recThread(threading.Thread):
             if l < 0:
                 print("recorder overrun at t = %.3f sec, some samples are lost." % (time.time()))
                 continue
+            if l * self.n_channels * self.sample_bits/8 != len(data):
+                raise IOError('number of channel or sample size do not match')
             overrun_checker.updateState(l)
             if l < self.periodsize:
                 print("\nread sample: %d, requested: %d" \
