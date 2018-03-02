@@ -7,6 +7,8 @@ import numpy as np
 
 from recmonitor import shortPeriodDectector, overrunChecker
 
+NDEBUG = True
+
 def log10(x):
     return math.log10(x) if x>0 else float('-inf') if x==0 else float('nan')
 
@@ -29,13 +31,7 @@ class recThread:
         b = bytearray(data)
         if self.format == alsaaudio.PCM_FORMAT_S16_LE:
             # S16_LE
-            #for j in range(len(data)):
-                #print("d[%4d] = % 5d,    " % (j, ord(data[j])), end='')
-            #print("")
             sample_s = struct.unpack_from('%dh'%(len(data)/2), b)
-            #for j in range(len(sample_s)):
-                #print("v[%4d] = % 5d,    " % (j, sample_s[j]), end='')
-            #print("")
             sample_d = np.array(sample_s) / 32768.0
         else:
             # S24_3LE
@@ -75,16 +71,15 @@ class recThread:
             if l == 0:
                 continue
             sample_d = self.decode_raw_samples(data)
-            #sample_d = sample_d[:,0]
             rms = (np.sum(sample_d ** 2, 0) / sample_d.shape[0])**(1.0/2)
-            m1 = np.max(sample_d, 0) * self.sample_maxp1
-            m2 = np.min(sample_d, 0) * self.sample_maxp1
-            #print("l = %d, datalen = %d" % (l, len(data)), ", shape = ", sample_d.shape)
-            print("RMS: %7.2f dB, maxmin = (%5.0f,%5.0f)" % \
-                    (20*log10(rms[0]), m1[0], m2[0]))
-            if len(rms)>1:
+            if not NDEBUG:
+                m1 = np.max(sample_d, 0) * self.sample_maxp1
+                m2 = np.min(sample_d, 0) * self.sample_maxp1
                 print("RMS: %7.2f dB, maxmin = (%5.0f,%5.0f)" % \
-                        (20*log10(rms[1]), m1[1], m2[1]))
+                        (20*log10(rms[0]), m1[0], m2[0]))
+                if len(rms)>1:
+                    print("RMS: %7.2f dB, maxmin = (%5.0f,%5.0f)" % \
+                            (20*log10(rms[1]), m1[1], m2[1]))
 
 d = 'default'
 d = 'hw:CARD=PCH,DEV=0'

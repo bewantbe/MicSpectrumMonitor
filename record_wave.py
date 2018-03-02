@@ -84,6 +84,8 @@ class recThread(threading.Thread):
         self.periodsize  = periodsize
         self.format = format
         self.b_run = False
+        self.sample_bits = 16 if self.format == alsaaudio.PCM_FORMAT_S16_LE else 24
+        self.sample_maxp1 = 2 ** (self.sample_bits-1)
     
     def decode_raw_samples(self, data):
         b = bytearray(data)
