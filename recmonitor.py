@@ -91,10 +91,6 @@ class sampleRateEstimator:
                   self.n_p_array[k]
             self.t_p_array[k] = t_p
 
-        for k in range(self.n_max_buf):
-            print("fr[%d] = %.2f Hz, diff_sample = % d" % \
-                    (k, 1.0 / self.t_p_array[k], self.n_p_array[k] - self.t_p_array[k] * self.n_p_array[k] * self.sr0))
-
         sr_min_err = float('inf')
         k0 = 0
         for k in range(self.n_max_buf):
@@ -110,6 +106,7 @@ class sampleRateEstimator:
 
         w = self.sr_ave_weight + self.n_p_array[k0]
         self.sr_ave = 1.0 / (self.sr_ave_weight/w * 1/self.sr_ave + self.n_p_array[k0]/w * self.t_p_array[k0])
+        self.sr_ave_weight = w
 
         return self.sr_last
 
@@ -167,12 +164,12 @@ class overrunChecker:
 
     def updateState(self, n_read_samples):
         time_now = time.time()
-        ok_up, ave_sr = self.period_estimator.append(n_read_samples, time_now)
         dt_s = time_now - self.__t_old
         self.__t_old = time_now
 
         if self.n_total_samples == -1:
             self.time_started = time_now - n_read_samples / self.sample_rate
+            self.n_total_samples = 0
             #self.time_started = time_now
             #self.n_total_samples = -n_read_samples
             #self.n_total_samples_old = 0
@@ -183,8 +180,9 @@ class overrunChecker:
         #print("n_total_samples_old:", self.n_total_samples_old)
         #print("dt_started:", time_now - self.time_started)
 
+        ok_up, ave_sr = self.period_estimator.append(n_read_samples, time_now)
         if ok_up:
-            print("SR est: %.2f Hz" % (ave_sr))
+            print("  SR select: %.2f Hz" % (ave_sr))
 
         if time_now < self.time_update_old + self.time_update_interval \
           or dt_s < self.t_no_wait_samples:
@@ -192,13 +190,11 @@ class overrunChecker:
 
         sr_intv = (self.n_total_samples - self.n_total_samples_old) / (time_now - self.time_now_old)
         print("")
-        print("t_now = %.6f, t_start = %.6f, delta = %.6f" % \
-                (time_now, self.time_started, time_now - self.time_started))
-        print("n_total_sample = %d, n_read_samples = %d" % \
-                (self.n_total_samples, n_read_samples))
-        print("  intv sr: %.1f Hz" % (sr_intv))
-        print("   est sr: %.1f Hz" % (self.sample_rate_est))
-        print("   ave sr: %.1f Hz" % (self.n_total_samples / (time_now - self.time_started)))
+        print("n_total_sample = %d, t_total = %.6f" % \
+                (self.n_total_samples, time_now - self.time_started))
+        print("  SR local: %.1f Hz" % (sr_intv))
+        print("  SR total: %.1f Hz" % (self.n_total_samples / (time_now - self.time_started)))
+        print("  SR est  : %.1f Hz" % (self.sample_rate_est))
 
         # Check if recorder buffer overrun occur.
         n_samples_from_time = (time_now - self.time_started) * self.sample_rate_est
