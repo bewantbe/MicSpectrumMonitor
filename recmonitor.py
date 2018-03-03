@@ -91,7 +91,7 @@ class sampleRateEstimator:
                   self.n_p_array[k]
             self.t_p_array[k] = t_p
 
-        for k in range(min(5, self.n_max_buf)):
+        for k in range(self.n_max_buf):
             print("fr[%d] = %.2f Hz, diff_sample = % d" % \
                     (k, 1.0 / self.t_p_array[k], self.n_p_array[k] - self.t_p_array[k] * self.n_p_array[k] * self.sr0))
 
@@ -102,8 +102,8 @@ class sampleRateEstimator:
             if err < sr_min_err:
                 sr_min_err = err
                 k0 = k
-                theory_err = self.t_p_array[k] * diff(self.n_cum_samples)/self.n_p_array[k] * 1.0/5
-                if err < theory_err:
+                diff_samples = self.n_p_array[k] - self.t_p_array[k] * self.n_p_array[k] * self.sr0
+                if abs(diff_samples) <= 64:  # not an outliner
                     break;
 
         self.sr_last = 1.0 / self.t_p_array[k0]
