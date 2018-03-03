@@ -1,3 +1,7 @@
+# test sampling rate and alsaaudio module
+# python sampling_rate.py
+# pasuspender -- python sampling_rate.py
+
 from __future__ import print_function
 import time
 import struct
@@ -81,9 +85,11 @@ class recThread:
                     print("RMS: %7.2f dB, maxmin = (%5.0f,%5.0f)" % \
                             (20*log10(rms[1]), m1[1], m2[1]))
 
-d = 'default'
-d = 'hw:CARD=PCH,DEV=0'
-d = 'hw:CARD=Device,DEV=0'
-rec = recThread(d, 1, 48000, 1024)
+#d = 'default'
+#d = 'hw:CARD=PCH,DEV=0'
+#d = 'hw:CARD=Device,DEV=0'
+d = 'plughw:CARD=Device,DEV=0'
+#rec = recThread(d, 2, 48000, 262144/4)
+rec = recThread(d, 2, 48000, 2**10)
 rec.run()
 
