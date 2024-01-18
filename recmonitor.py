@@ -91,6 +91,9 @@ class sampleRateEstimator:
                   self.n_p_array[k]
             self.t_p_array[k] = t_p
 
+        #for k in range(10):
+            #print("fq[%d] = %.2f" % (k, 1.0 / self.t_p_array[k]))
+
         sr_min_err = float('inf')
         k0 = 0
         for k in range(self.n_max_buf):
@@ -141,7 +144,7 @@ class overrunChecker:
         self.__t_old = 0
         self.t_no_wait_samples = min([0.001, 0.5 * self.buffer_sample_size / self.sample_rate])
         self.period_estimator = sampleRateEstimator(self.sample_rate, \
-             max(4, int(2.0*self.sample_rate // self.buffer_sample_size + 1)))
+             max(4, int(1.6*self.sample_rate // self.buffer_sample_size + 1)))
 
     def start(self):
         self.n_total_samples = -1
@@ -192,9 +195,9 @@ class overrunChecker:
         print("")
         print("n_total_sample = %d, t_total = %.6f" % \
                 (self.n_total_samples, time_now - self.time_started))
-        print("  SR local: %.1f Hz" % (sr_intv))
-        print("  SR total: %.1f Hz" % (self.n_total_samples / (time_now - self.time_started)))
-        print("  SR est  : %.1f Hz" % (self.sample_rate_est))
+        print("  SR local : %.1f Hz" % (sr_intv))
+        print("  SR total : %.1f Hz" % (self.n_total_samples / (time_now - self.time_started)))
+        print("  SR est   : %.1f Hz" % (self.sample_rate_est))
 
         # Check if recorder buffer overrun occur.
         n_samples_from_time = (time_now - self.time_started) * self.sample_rate_est

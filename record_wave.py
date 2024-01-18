@@ -1,12 +1,10 @@
-#!/usr/bin/env python
-
-from __future__ import print_function
+#!/usr/bin/env python3
 
 import sys
 import time
 import struct
 import re
-import Queue
+import queue
 import threading
 
 import numpy as np
@@ -95,23 +93,22 @@ class recThread(threading.Thread):
             sample_d = np.array(sample_s) / 32768.0
         else:
             # S24_3LE
-            sample_d = np.zeros(len(b)/3)
+            sample_d = np.zeros(len(b)//3)
             for i in range(len(sample_d)):
                 v = b[3*i] + 0x100*b[3*i+1] + 0x10000*b[3*i+2]
                 sample_d[i] = v - ((v & 0x800000) << 1)
             sample_d /= 0x1000000 * 1.0
         # separate channels
-        sample_d = sample_d.reshape((len(sample_d)/self.n_channels, self.n_channels)).T
+        sample_d = sample_d.reshape((len(sample_d)//self.n_channels, self.n_channels)).T
         return sample_d
 
     def run(self):
         # PCM Objects
         # http://larsimmisch.github.io/pyalsaaudio/libalsaaudio.html#pcm-objects
-        inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NORMAL, device=self.device)
-        inp.setchannels(self.n_channels)
-        inp.setrate(int(self.sample_rate))
-        inp.setformat(self.format)
-        inp.setperiodsize(self.periodsize)   # frames per period
+        inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NORMAL, 
+           rate = int(self.sample_rate), channels = self.n_channels,
+           format = self.format, periodsize = self.periodsize,
+           periods = 4, device = self.device)
         
         self.b_run = True
 
@@ -124,7 +121,7 @@ class recThread(threading.Thread):
                 continue
             if l * self.n_channels * self.sample_bits/8 != len(data):
                 raise IOError('number of channel or sample size do not match')
-            overrun_checker.updateState(l)
+            #overrun_checker.updateState(l)
             if l < self.periodsize:
                 print("\nread sample: %d, requested: %d" \
                     % (l, self.periodsize))
@@ -150,9 +147,9 @@ class analyzerData():
         self.rms = 0
         self.v = np.zeros(sz_chunk)
         # hold spectrums, no negative frequency
-        self.sp_cumulate = np.zeros((self.sz_fft + 2) / 2)
-        self.sp_vo = np.zeros((self.sz_fft + 2) / 2)
-        self.sp_db = np.ones((self.sz_fft + 2) / 2) * float('-inf')
+        self.sp_cumulate = np.zeros((self.sz_fft + 2) // 2)
+        self.sp_vo = np.zeros((self.sz_fft + 2) // 2)
+        self.sp_db = np.ones((self.sz_fft + 2) // 2) * float('-inf')
         self.sp_cnt = 0
         self.ave_num = ave_num       # number of averages to get one spectrum
         self.lock_data = threading.Lock()
@@ -218,9 +215,9 @@ class analyzerData():
             print('File "%s" format not recognized.' % (fname))
             return
         calib_orig = np.array(calib_orig).T
-	self.calib_db = np.interp(self.fqs, calib_orig[0], calib_orig[1])
-	self.calib_pow = 10 ** (self.calib_db / 10)
-	print('Using calibration file "%s": %d entries' % (fname, len(calib_orig[0])))
+        self.calib_db = np.interp(self.fqs, calib_orig[0], calib_orig[1])
+        self.calib_pow = 10 ** (self.calib_db / 10)
+        print('Using calibration file "%s": %d entries' % (fname, len(calib_orig[0])))
 
     def put(self, data):
         if len(self.v) != len(data): return
@@ -506,9 +503,9 @@ class processThread(threading.Thread):
         while self.b_run:
             try:
                 s = self.buf_que.get(True, 0.1)
-            except Queue.Empty:
+            except queue.Empty:
                 s = []
-            if (s == []):
+            if (len(s) == 0):
                 continue
             s = s[0, :]                    # select left channel
             s_pos = 0
@@ -571,7 +568,7 @@ def set_RMS_normalize_factor(RMS_sine):
 set_RMS_normalize_factor(RMS_normalize_to_sine)
 
 # buffer that transmit data from recorder to processor
-buf_queue = Queue.Queue(10000)
+buf_queue = queue.Queue(10000)
 
 b_start = True
 while b_start:
@@ -602,7 +599,7 @@ while b_start:
     plot_audio = plotAudio(analyzer_data, condition_variable)
 
     # init data dispatcher
-    process_thread = processThread('dispatch', buf_queue, condition_variable, size_chunk, size_chunk/2)
+    process_thread = processThread('dispatch', buf_queue, condition_variable, size_chunk, size_chunk//2)
     process_thread.start()
 
     rec_thread.start()

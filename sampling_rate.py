@@ -86,10 +86,10 @@ class recThread:
                             (20*log10(rms[1]), m1[1], m2[1]))
 
 #d = 'default'
-#d = 'hw:CARD=PCH,DEV=0'
+d = 'hw:CARD=PCH,DEV=0'
 #d = 'hw:CARD=Device,DEV=0'
-d = 'plughw:CARD=Device,DEV=0'
-rec = recThread(d, 2, 48000, 262144/4)
+#d = 'plughw:CARD=Device,DEV=0'
+rec = recThread(d, 2, 48000, 262144*2)
 #rec = recThread(d, 2, 48000, 2**12)
 rec.run()
 
