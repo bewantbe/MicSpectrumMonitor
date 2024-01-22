@@ -30,6 +30,7 @@ class MicReader(tssabc.SampleReader):
         )
         self.stream.start_stream()
         self.initilized = True
+        return self
 
     def read(self, n_frames):
         if n_frames == None:

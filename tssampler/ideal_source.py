@@ -5,33 +5,6 @@ from numpy import (
 )
 import tssabc
 
-class cosSignal:
-    """ cos signal generator """
-    def __init__(self, freq, sample_rate):
-        self.t0 = 0
-        self.freq = freq
-        self.sample_rate = sample_rate
-
-    def get(self, size):
-        fq = 1.0 * self.freq / self.sample_rate
-        sample_d = np.cos(2*np.pi * fq * (self.t0 + np.arange(size)))
-        self.t0 += size
-        return sample_d.reshape((1, size))
-
-class whiteSignal:
-    """ white noise generator """
-    def get(self, size):
-        return np.random.rand(1, size)*2-1
-    
-    def spectrumLevel(self, wnd):
-        return 10*log10(1.0/3*sum(wnd**2)*2/sum(wnd)**2) + RMS_db_sine_inc
-    
-    def RMS(self):
-        return 10*log10(1.0/3) + RMS_db_sine_inc
-
-cos_signal = cosSignal(1000, 48000)
-white_signal = whiteSignal()
-
 class SineSource(tssabc.SampleReader):
     sampler_id = 'sine'
 
@@ -56,6 +29,31 @@ class SineSource(tssabc.SampleReader):
     def close(self):
         pass
     
+class WhiteSource(tssabc.SampleReader):
+    sampler_id = 'white'
+
+    def init(self, sample_rate, chunk_size, fn_cb = None, normalize_level = 0):
+        self.sample_rate = sample_rate
+        self.t_last = time.time()
+        self.normalize_level = normalize_level  # can be RMS_db_sine_inc
+        return self
+    
+    def read(self, n_frames):
+        s = np.random.rand(1, n_frames) * 2 - 1
+        self.t_last += n_frames / self.sample_rate
+        # Simulate the blocking behavior:
+        #   When no more data, block until all requested frames are ready.
+        t_wait = self.t_last - time.time()
+        if t_wait > 0:
+            time.sleep(t_wait)
+        return s.reshape((1, n_frames))
+    
+    def spectrumLevel(self, wnd):
+        return 10*log10(1.0/3*sum(wnd**2)*2/sum(wnd)**2) + self.normalize_level
+    
+    def RMS(self):
+        return 10*log10(1.0/3) + self.normalize_level
+    
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
@@ -70,5 +68,21 @@ if __name__ == "__main__":
     vals = np.concatenate(vals, axis=1)
     print(vals.shape)
 
+    plt.figure(1)
     plt.plot(vals.T)
+    plt.title('sine source')
+
+    white_source = WhiteSource()
+    white_source.init(48000, 1024)
+    vals = [None] * 3
+    for i in range(3):
+        vals[i] = white_source.read(1024)
+    white_source.close()
+
+    vals = np.concatenate(vals, axis=1)
+    print(vals.shape)
+    plt.figure(2)
+    plt.plot(vals.T)
+    plt.title('white source')
+
     plt.show()

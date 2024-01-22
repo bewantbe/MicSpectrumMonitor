@@ -54,6 +54,7 @@ class SampleReader(ABC):
     @abstractmethod
     def init(self, sample_rate, chunk_size, stream_callback=None, **kwargs):
         """Initialize the reader."""
+        return self
 
     @abstractmethod
     def read(self, n_frames):
@@ -61,7 +62,6 @@ class SampleReader(ABC):
         Return decoded data.
         """
     
-    @abstractmethod
     def close(self):
         """Close the reader."""
 
@@ -75,16 +75,16 @@ def register_sampler(cls, sampler_id = None):
     logger.debug("Registering sampler '%s'", sampler_id)
     sampler_registry[sampler_id] = cls
 
-def get_sampler(config):
+def get_sampler(sampler_id):
     """Obtain a sampler for the given configuration.
-
-    Parameters: config: dick-like, configuration object.
-
-    Return: the sampler
     """
-    config = dict(config)
-    sampler_id = config.pop('id', None)
-    cls = sampler_registry.get(sampler_id)
-    if cls:
-        return cls.from_config(config)
-    raise ValueError('sampler not available: %r' % sampler_id)
+    if isinstance(sampler_id, str):
+        return sampler_registry.get(sampler_id)
+    else:
+        # assume sampler_id is a dict
+        conf = dict(sampler_id)
+        sampler_id = conf.pop('sampler_id', None)
+        cls = sampler_registry.get(sampler_id)
+        if cls:
+            return cls.init(conf)
+        raise ValueError('sampler not available: %r' % sampler_id)
