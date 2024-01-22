@@ -9,7 +9,7 @@
 #   sam = get_sampler(conf)
 #   vals = sam.read(1024)
 
-from .tssabc import register_sampler, get_sampler
+from .tssabc import register_sampler, get_sampler, sampler_registry
 
 from .ideal_source import SineSource, WhiteSource
 register_sampler(ideal_source.SineSource)
@@ -25,3 +25,6 @@ else:
     from .alsa_linux import AlsaAudio
     register_sampler(AlsaAudio)
     register_sampler(AlsaAudio, 'mic')
+
+from .read_ad7606c import AD7606CReader
+register_sampler(AD7606CReader)

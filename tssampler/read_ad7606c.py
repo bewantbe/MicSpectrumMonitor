@@ -2,15 +2,15 @@
 import time
 import numpy as np
 
-#from . import tssabc
-import tssabc     # use as script
+from . import tssabc
+#import tssabc     # use as script
 
 import sys
 sys.path.append('C:\\Users\\xyy82\\soft\\USB2AD7606BC\\temp-release\\customapp')
 from M3F20xm import M3F20xmADC, dbg_print
 
-class AD7607CReader(tssabc.SampleReader):
-    sampler_id = 'ad7607c'
+class AD7606CReader(tssabc.SampleReader):
+    sampler_id = 'ad7606c'
 
     def __init__(self):
         self.initilized = False
@@ -18,7 +18,7 @@ class AD7607CReader(tssabc.SampleReader):
     def init(self, sample_rate, periodsize=None, stream_callback=None, **kwargs):
         self.chunk_size = periodsize           # TODO: are they the same
         self.adc = M3F20xmADC(reset = True)
-        self.adc.set_sampling_rate(sample_rate, 1.0)
+        self.adc.set_sampling_rate(sample_rate)
         self.n_channels = self.adc.n_channels
         self.sample_rate = 1.0 / self.adc.get_sampling_interval()
         self.adc.start()
@@ -47,11 +47,11 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
     
     # test the class
-    mic_reader = AD7607CReader()
-    mic_reader.init(44100)
-    vals = [None] * 5
+    mic_reader = AD7606CReader()
+    mic_reader.init(48000)
+    vals = [None] * (6*2)
     for i in range(len(vals)):
-        vals[i] = mic_reader.read(1024)
+        vals[i] = mic_reader.read(8000)
     mic_reader.close()
 
     vals = np.concatenate(vals, axis=1)

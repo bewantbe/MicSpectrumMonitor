@@ -519,6 +519,7 @@ while b_start:
     print("using device: ", pcm_device)
     if pcm_device == 'default':
         conf = {
+            'sampler_id': 'mic',
             'device'    : 'default',
             'n_channels': 1,
             'sample_rate': 48000,
@@ -527,21 +528,30 @@ while b_start:
         }
     elif pcm_device == 'hw:CARD=U18dB,DEV=0':
         conf = {
+            'sampler_id': 'mic',
             'device'    : 'hw:CARD=U18dB,DEV=0',
             'n_channels': 2,
             'sample_rate': 48000,
             'periodsize': 1024,
             'format'    : 'S24_LE',
         }
+    elif pcm_device == 'ad7606c':
+        conf = {
+            'sampler_id': 'ad7606c',
+            'device'    : 'ad7606c',
+            'sample_rate': 48000,
+            'periodsize': 4800,
+        }
     else:
         conf = {
+            'sampler_id': 'mic',
             'device'    : 'default',
             'n_channels': 1,
             'sample_rate': 48000,
             'periodsize': 1024,
             'format'    : 'S16_LE',
         }
-    rec_thread = recThread('rec', buf_queue, 'mic', conf)
+    rec_thread = recThread('rec', buf_queue, conf['sampler_id'], conf)
 
     # init analyzer data
     analyzer_data = analyzerData(size_chunk, rec_thread, n_ave)
