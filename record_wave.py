@@ -13,7 +13,7 @@ from numpy import sqrt
 from numpy import sum
 
 # https://larsimmisch.github.io/pyalsaaudio/
-import alsaaudio
+import tssampler
 
 # to run:  `python record_wave.py -d default -l 8192 -n 128 --calib='99-21328.txt'`
 # to kill: `pkill -f record_wave.py`
