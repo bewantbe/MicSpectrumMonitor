@@ -79,12 +79,12 @@ def get_sampler(sampler_id):
     """Obtain a sampler for the given configuration.
     """
     if isinstance(sampler_id, str):
-        return sampler_registry.get(sampler_id)
+        return sampler_registry.get(sampler_id)()
     else:
         # assume sampler_id is a dict
         conf = dict(sampler_id)
         sampler_id = conf.pop('sampler_id', None)
-        cls = sampler_registry.get(sampler_id)
+        cls = sampler_registry.get(sampler_id)()
         if cls:
             return cls.init(conf)
         raise ValueError('sampler not available: %r' % sampler_id)

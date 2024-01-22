@@ -3,7 +3,7 @@ import numpy as np
 from numpy import (
     log10, sqrt, sum
 )
-import tssabc
+from . import tssabc
 
 class SineSource(tssabc.SampleReader):
     sampler_id = 'sine'
@@ -32,10 +32,9 @@ class SineSource(tssabc.SampleReader):
 class WhiteSource(tssabc.SampleReader):
     sampler_id = 'white'
 
-    def init(self, sample_rate, chunk_size, fn_cb = None, normalize_level = 0):
+    def init(self, sample_rate, chunk_size, fn_cb = None):
         self.sample_rate = sample_rate
         self.t_last = time.time()
-        self.normalize_level = normalize_level  # can be RMS_db_sine_inc
         return self
     
     def read(self, n_frames):
@@ -48,11 +47,13 @@ class WhiteSource(tssabc.SampleReader):
             time.sleep(t_wait)
         return s.reshape((1, n_frames))
     
-    def spectrumLevel(self, wnd):
-        return 10*log10(1.0/3*sum(wnd**2)*2/sum(wnd)**2) + self.normalize_level
+    @staticmethod
+    def spectrumLevel(wnd, normalize_level):
+        return 10*log10(1.0/3*sum(wnd**2)*2/sum(wnd)**2) + normalize_level
     
-    def RMS(self):
-        return 10*log10(1.0/3) + self.normalize_level
+    @staticmethod
+    def RMS(normalize_level):
+        return 10*log10(1.0/3) + normalize_level
     
 if __name__ == "__main__":
     import matplotlib.pyplot as plt

@@ -3,7 +3,8 @@
 
 import pyaudio
 import struct      # unpack the packed bytes
-import tssabc
+import numpy as np
+from . import tssabc
 
 class MicReader(tssabc.SampleReader):
     
@@ -12,11 +13,11 @@ class MicReader(tssabc.SampleReader):
     def __init__(self):
         self.initilized = False
 
-    def init(self, sample_rate, chunk_size, stream_callback=None, **kwargs):
+    def init(self, sample_rate, periodsize, stream_callback=None, **kwargs):
         # Ref. https://people.csail.mit.edu/hubert/pyaudio/docs/
         self.pya = pyaudio.PyAudio()
         self.sample_rate = sample_rate
-        self.chunk_size = chunk_size
+        self.chunk_size = periodsize   # TODO: are they the same
         self.dtype = 'int16'
         self.n_channels = 1
         self.stream = self.pya.open(
@@ -38,7 +39,7 @@ class MicReader(tssabc.SampleReader):
         data = self.stream.read(n_frames)
         vals = struct.unpack('h' * (len(data) // 2), data)
         # or try numpy.frombuffer
-        return vals
+        return np.array(vals).reshape((1, len(vals))) / 65536.0
 
     def close(self):
         self.stream.stop_stream()

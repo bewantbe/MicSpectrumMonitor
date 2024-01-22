@@ -13,7 +13,8 @@ from numpy import sqrt
 from numpy import sum
 
 # https://larsimmisch.github.io/pyalsaaudio/
-import tssampler
+from tssampler import get_sampler
+from tssampler.ideal_source import WhiteSource
 
 # to run:  `python record_wave.py -d default -l 8192 -n 128 --calib='99-21328.txt'`
 # to kill: `pkill -f record_wave.py`
@@ -38,99 +39,35 @@ pacmd set-source-volume 1 6554 && pacmd list-sources | grep volume
 
 # xde: UMIK-1 vol=52000 (-6.03 dB) <-dBA-> huawei: PMIK-1 (rec)
 
-class cosSignal:
-    """ cos signal generator """
-    def __init__(self, freq, sample_rate):
-        self.t0 = 0
-        self.freq = freq
-        self.sample_rate = sample_rate
-
-    def get(self, size):
-        fq = 1.0 * self.freq / self.sample_rate
-        sample_d = np.cos(2*np.pi * fq * (self.t0 + np.arange(size)))
-        self.t0 += size
-        return sample_d.reshape((1, size))
-
-class whiteSignal:
-    """ white noise generator """
-    def get(self, size):
-        return np.random.rand(1, size)*2-1
-    
-    def spectrumLevel(self, wnd):
-        return 10*log10(1.0/3*sum(wnd**2)*2/sum(wnd)**2) + RMS_db_sine_inc
-    
-    def RMS(self):
-        return 10*log10(1.0/3) + RMS_db_sine_inc
-
-cos_signal = cosSignal(1000, 48000)
-white_signal = whiteSignal()
-
 from recmonitor import shortPeriodDectector, overrunChecker
 
 class recThread(threading.Thread):
     """ Recorder thread """
-    def __init__(self, name, buf_que, device, n_channels=1, sample_rate=44100, periodsize=256, format=alsaaudio.PCM_FORMAT_S16_LE):
+    def __init__(self, name, buf_que, device, conf):
         threading.Thread.__init__(self)
         self.name = name
         self.buf_que = buf_que    # "output" port of recording data
         if (len(device) > 0):
             self.device = device
         else:
-            self.device = 'default'
-        self.n_channels  = n_channels
-        self.sample_rate = sample_rate * 1.0  # keep float, so easier for math
-        self.periodsize  = periodsize
-        self.format = format
+            self.device = 'mic'
+        self.conf = conf
+        self.periodsize = conf['periodsize']
+        self.sampler = get_sampler(self.device)
         self.b_run = False
-        self.sample_bits = 16 if self.format == alsaaudio.PCM_FORMAT_S16_LE else 24
-        self.sample_maxp1 = 2 ** (self.sample_bits-1)
     
-    def decode_raw_samples(self, data):
-        b = bytearray(data)
-        if self.format == alsaaudio.PCM_FORMAT_S16_LE:
-            # S16_LE
-            sample_s = struct.unpack_from('%dh'%(len(data)/2), b)
-            sample_d = np.array(sample_s) / 32768.0
-        else:
-            # S24_3LE
-            sample_d = np.zeros(len(b)//3)
-            for i in range(len(sample_d)):
-                v = b[3*i] + 0x100*b[3*i+1] + 0x10000*b[3*i+2]
-                sample_d[i] = v - ((v & 0x800000) << 1)
-            sample_d /= 0x1000000 * 1.0
-        # separate channels
-        sample_d = sample_d.reshape((len(sample_d)//self.n_channels, self.n_channels)).T
-        return sample_d
-
     def run(self):
         # PCM Objects
         # http://larsimmisch.github.io/pyalsaaudio/libalsaaudio.html#pcm-objects
-        inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NORMAL, 
-           rate = int(self.sample_rate), channels = self.n_channels,
-           format = self.format, periodsize = self.periodsize,
-           periods = 4, device = self.device)
-        
+        self.sampler.init(**self.conf)
         self.b_run = True
 
-        overrun_checker = overrunChecker(self.sample_rate, self.periodsize)
+        overrun_checker = overrunChecker(
+            self.conf['sample_rate'], self.conf['periodsize'])
         overrun_checker.start()
         while self.b_run:
-            l, data = inp.read()     # Read data from device
-            if l < 0:
-                print("recorder overrun at t = %.3f sec, some samples are lost." % (time.time()))
-                continue
-            if l * self.n_channels * self.sample_bits/8 != len(data):
-                raise IOError('number of channel or sample size do not match')
+            sample_d = self.sampler.read(self.conf['periodsize'])
             #overrun_checker.updateState(l)
-            if l < self.periodsize:
-                print("\nread sample: %d, requested: %d" \
-                    % (l, self.periodsize))
-            if l == 0:
-                continue
-            sample_d = self.decode_raw_samples(data)
-#            sample_d = cos_signal.get(self.periodsize)
-#            sample_d = white_signal.get(self.periodsize)
-
             if not self.buf_que.full():
                 self.buf_que.put(sample_d, True)
             else:
@@ -141,7 +78,7 @@ class recThread(threading.Thread):
 class analyzerData():
     """ Data analyzer """
     def __init__(self, sz_chunk, rec_th, ave_num = 1):
-        self.sample_rate = rec_th.sample_rate
+        self.sample_rate = rec_th.conf['sample_rate']
         self.sz_chunk = sz_chunk     # data size for one FFT
         self.sz_fft   = sz_chunk     # FFT frequency points
         self.rms = 0
@@ -409,7 +346,7 @@ class plotAudio:
         calib = analyzer_data.calib_db if len(analyzer_data.calib_db) \
             else np.zeros(len(analyzer_data.fqs))
         fqs = analyzer_data.fqs
-        sp = -calib + white_signal.spectrumLevel(analyzer_data.wnd)
+        sp = -calib + WhiteSource.spectrumLevel(analyzer_data.wnd, RMS_db_sine_inc)
         self.ax[1].plot(fqs, sp, 'r')
     
     def saveBackground(self):
@@ -578,14 +515,30 @@ while b_start:
     # prepare recorder
     print("using device: ", pcm_device)
     if pcm_device == 'default':
-        rec_thread = recThread('rec', buf_queue, 'default', \
-            1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
+        conf = {
+            'device'    : 'default',
+            'n_channels': 1,
+            'sample_rate': 48000,
+            'periodsize': 1024,
+            'format'    : 'S16_LE',
+        }
     elif pcm_device == 'hw:CARD=U18dB,DEV=0':
-        rec_thread = recThread('rec', buf_queue, 'hw:CARD=U18dB,DEV=0', \
-            2, 48000, 1024, alsaaudio.PCM_FORMAT_S24_LE)
+        conf = {
+            'device'    : 'hw:CARD=U18dB,DEV=0',
+            'n_channels': 2,
+            'sample_rate': 48000,
+            'periodsize': 1024,
+            'format'    : 'S24_LE',
+        }
     else:
-        rec_thread = recThread('rec', buf_queue, pcm_device, \
-            1, 48000, 1024, alsaaudio.PCM_FORMAT_S16_LE)
+        conf = {
+            'device'    : 'default',
+            'n_channels': 1,
+            'sample_rate': 48000,
+            'periodsize': 1024,
+            'format'    : 'S16_LE',
+        }
+    rec_thread = recThread('rec', buf_queue, 'mic', conf)
 
     # init analyzer data
     analyzer_data = analyzerData(size_chunk, rec_thread, n_ave)
