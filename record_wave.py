@@ -329,6 +329,7 @@ class plotAudio:
         self.ax[0].set_xlabel('t')
         self.text_1 = self.ax[0].text(0.0, 0.91, '', transform=self.ax[0].transAxes)
         self.text_1.set_text('')
+        self.ax[0].yaxis.set_animated(True)
         self.plt_line.set_animated(True)
         self.text_1.set_animated(True)
 
@@ -363,6 +364,7 @@ class plotAudio:
         y = analyzer_data.getV()
         if y.any():
             self.ax[0].set_ylim(np.array([-1.3, 1.3])*y.max())
+            #self.fig.canvas.draw()
         # Animating xaxis range is still a problem:
         # https://github.com/matplotlib/matplotlib/issues/2324
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sample_rate
@@ -394,7 +396,8 @@ class plotAudio:
         self.plotVolt()
         self.ax[0].draw_artist(self.plt_line)
         self.ax[0].draw_artist(self.text_1)
-#        self.ax[0].draw_artist(self.ax[0].get_yaxis())  # slow
+        #self.ax[0].draw_artist(self.ax[0].get_yaxis())  # slow
+        self.ax[0].draw_artist(self.ax[0].yaxis)  # slow
         self.fig.canvas.blit(self.ax[0].bbox)
         
         self.fig.canvas.restore_region(self.backgrounds[1])

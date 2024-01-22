@@ -39,7 +39,7 @@ class MicReader(tssabc.SampleReader):
         data = self.stream.read(n_frames)
         vals = struct.unpack('h' * (len(data) // 2), data)
         # or try numpy.frombuffer
-        return np.array(vals).reshape((1, len(vals))) / 65536.0
+        return np.array(vals).reshape((1, len(vals))) / 32768.0
 
     def close(self):
         self.stream.stop_stream()
