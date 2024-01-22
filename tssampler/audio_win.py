@@ -5,6 +5,7 @@ import pyaudio
 import struct      # unpack the packed bytes
 import numpy as np
 from . import tssabc
+#import tssabc     # use as script
 
 class MicReader(tssabc.SampleReader):
     
@@ -56,12 +57,13 @@ if __name__ == '__main__':
     # test the class by 1 call to read()
     mic_reader = MicReader()
     mic_reader.init(44100, 1024)
-    for i in range(10):
-        vals = mic_reader.read(1024)
+    vals = [None] * 5
+    for i in range(len(vals)):
+        vals[i] = mic_reader.read(1024)
     mic_reader.close()
 
-    print(type(vals))
-    print(len(vals))
+    vals = np.concatenate(vals, axis=1)
+    print(vals.shape)
 
-    plt.plot(vals)
+    plt.plot(vals.T)
     plt.show()
