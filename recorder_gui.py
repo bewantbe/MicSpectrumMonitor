@@ -13,42 +13,42 @@ win.setCentralWidget(area)
 win.resize(1000,500)
 win.setWindowTitle('Spectrum Analyzer')
 
-d1 = Dock("Dock1 - Waveform", size=(100, 200))     ## give this dock the minimum possible size
-d2 = Dock("Dock2 - Spectrum", size=(500, 300), closable=True)
-d3 = Dock("Dock3 - Spectrogram", size=(500,400))
-d4 = Dock("Dock4 - Control Pannel", size=(500,200))
-area.addDock(d1, 'left')        # place d1 at left edge of dock area (it will fill the whole space since there are no other docks yet)
-area.addDock(d2, 'bottom', d1)  # place d2 at bottom edge of d1
-area.addDock(d4, 'bottom', d2)  # place d4 at bottom edge of d2
-area.addDock(d3, 'right')       # place d2 at right edge of dock area
+dock1 = Dock("Waveform", size=(100, 200))
+dock2 = Dock("Spectrum", size=(500, 300), closable=True)
+dock3 = Dock("Spectrogram", size=(500,400))
+dock4 = Dock("Control Pannel", size=(500,200))
+area.addDock(dock1, 'left')
+area.addDock(dock2, 'bottom', dock1)
+area.addDock(dock4, 'bottom', dock2)
+area.addDock(dock3, 'right')
 
 
 ## Add widgets into each dock
 
 ## Dock 1
-w1 = pg.PlotWidget(title="Waveform")
-d1_plot = w1.plot(np.random.normal(size=100))
-d1.addWidget(w1)
+widg1 = pg.PlotWidget(title="Waveform")
+d1_plot = widg1.plot(np.random.normal(size=100))
+dock1.addWidget(widg1)
 
 ## Dock 2
-#d2.hideTitleBar()
-w2 = pg.PlotWidget(title="Spectrum")
-d2_plot = w2.plot(np.random.normal(size=100))
-d2.addWidget(w2)
+#dock2.hideTitleBar()
+widg2 = pg.PlotWidget(title="Spectrum")
+d2_plot = widg2.plot(np.random.normal(size=100))
+dock2.addWidget(widg2)
 
 ## Dock 3
-#w3 = pg.ImageView()
+#widg3 = pg.ImageView()
 
-w3 = pg.GraphicsView()
+widg3 = pg.GraphicsView()
 vb3 = pg.ViewBox()
-w3.setCentralItem(vb3)
+widg3.setCentralItem(vb3)
 w3_img = pg.ImageItem()
 w3_img.setImage(np.random.normal(size=(100,100)))
 vb3.addItem(w3_img)
-d3.addWidget(w3)
+dock3.addWidget(widg3)
 
 ## Dock 4
-w4 = pg.LayoutWidget()
+widg4 = pg.LayoutWidget()
 label = QtWidgets.QLabel("Set the parameters for recording:")
 file_path_edit = QtWidgets.QLineEdit("", placeholderText="File path for saving the recording")
 file_choose_btn = QtWidgets.QPushButton('Browse')
@@ -56,13 +56,13 @@ start_mon_btn = QtWidgets.QPushButton('Monitoring')
 start_rec_btn = QtWidgets.QPushButton('Start recording')
 stop_rec_btn  = QtWidgets.QPushButton('Stop recording')
 stop_rec_btn.setEnabled(False)
-w4.addWidget(label, row=0, col=0)
-w4.addWidget(file_path_edit, row=1, col=0)
-w4.addWidget(file_choose_btn, row=1, col=1)
-w4.addWidget(start_mon_btn, row=2, col=0)
-w4.addWidget(start_rec_btn, row=2, col=1)
-w4.addWidget(stop_rec_btn, row=2, col=2)
-d4.addWidget(w4)
+widg4.addWidget(label, row=0, col=0)
+widg4.addWidget(file_path_edit, row=1, col=0)
+widg4.addWidget(file_choose_btn, row=1, col=1)
+widg4.addWidget(start_mon_btn, row=2, col=0)
+widg4.addWidget(start_rec_btn, row=2, col=1)
+widg4.addWidget(stop_rec_btn, row=2, col=2)
+dock4.addWidget(widg4)
 
 
 state = None
