@@ -86,5 +86,5 @@ def get_sampler(sampler_id):
         sampler_id = conf.pop('sampler_id', None)
         cls = sampler_registry.get(sampler_id)()
         if cls:
-            return cls.init(conf)
+            return cls.init(**conf)
         raise ValueError('sampler not available: %r' % sampler_id)

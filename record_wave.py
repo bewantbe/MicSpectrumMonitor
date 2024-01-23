@@ -43,17 +43,13 @@ from recmonitor import shortPeriodDectector, overrunChecker
 
 class recThread(threading.Thread):
     """ Recorder thread """
-    def __init__(self, name, buf_que, device, conf):
+    def __init__(self, name, buf_que, conf):
         threading.Thread.__init__(self)
         self.name = name
         self.buf_que = buf_que    # "output" port of recording data
-        if (len(device) > 0):
-            self.device = device
-        else:
-            self.device = 'mic'
         self.conf = conf
         self.periodsize = conf['periodsize']
-        self.sampler = get_sampler(self.device)
+        self.sampler = get_sampler(conf)
         self.b_run = False
     
     def run(self):
@@ -538,7 +534,6 @@ while b_start:
     elif pcm_device == 'ad7606c':
         conf = {
             'sampler_id': 'ad7606c',
-            'device'    : 'ad7606c',
             'sample_rate': 48000,
             'periodsize': 4800,
         }
@@ -551,7 +546,7 @@ while b_start:
             'periodsize': 1024,
             'format'    : 'S16_LE',
         }
-    rec_thread = recThread('rec', buf_queue, conf['sampler_id'], conf)
+    rec_thread = recThread('rec', buf_queue, conf)
 
     # init analyzer data
     analyzer_data = analyzerData(size_chunk, rec_thread, n_ave)
