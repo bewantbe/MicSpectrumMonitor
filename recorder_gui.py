@@ -25,22 +25,32 @@ area.addDock(d3, 'right')       # place d2 at right edge of dock area
 
 ## Add widgets into each dock
 
+## Dock 1
 w1 = pg.PlotWidget(title="Waveform")
-w1.plot(np.random.normal(size=100))
+d1_plot = w1.plot(np.random.normal(size=100))
 d1.addWidget(w1)
 
+## Dock 2
 #d2.hideTitleBar()
 w2 = pg.PlotWidget(title="Spectrum")
-w2.plot(np.random.normal(size=100))
+d2_plot = w2.plot(np.random.normal(size=100))
 d2.addWidget(w2)
 
-w3 = pg.ImageView()
-w3.setImage(np.random.normal(size=(100,100)))
+## Dock 3
+#w3 = pg.ImageView()
+
+w3 = pg.GraphicsView()
+vb3 = pg.ViewBox()
+w3.setCentralItem(vb3)
+w3_img = pg.ImageItem()
+w3_img.setImage(np.random.normal(size=(100,100)))
+vb3.addItem(w3_img)
 d3.addWidget(w3)
 
+## Dock 4
 w4 = pg.LayoutWidget()
 label = QtWidgets.QLabel("Set the parameters for recording:")
-file_path_edit = QtWidgets.QLineEdit()
+file_path_edit = QtWidgets.QLineEdit("", placeholderText="File path for saving the recording")
 file_choose_btn = QtWidgets.QPushButton('Browse')
 start_mon_btn = QtWidgets.QPushButton('Monitoring')
 start_rec_btn = QtWidgets.QPushButton('Start recording')
@@ -54,17 +64,13 @@ w4.addWidget(start_rec_btn, row=2, col=1)
 w4.addWidget(stop_rec_btn, row=2, col=2)
 d4.addWidget(w4)
 
+
 state = None
 save_file_name = None
 def open_file_dialog():
     global save_file_name
-    # open a widget to get the file name to save to
-    # save the state to the file
-    dialog = QtWidgets.QFileDialog()
-    dialog.setFileMode(QtWidgets.QFileDialog.AnyFile)
-    dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
-    if dialog.exec_():
-        save_file_name = dialog.selectedFiles()[0]
+    save_file_name = QtWidgets.QFileDialog.getSaveFileName()[0]
+    file_path_edit.setText(save_file_name)
 
 file_choose_btn.clicked.connect(open_file_dialog)
 
@@ -79,6 +85,15 @@ def stop_rec():
 
 start_rec_btn.clicked.connect(save_rec)
 stop_rec_btn.clicked.connect(stop_rec)
+
+def update():
+    d1_plot.setData(np.random.normal(size=100))
+    d2_plot.setData(np.random.normal(size=100))
+    w3_img.setImage(np.random.normal(size=(100,100)))
+
+timer = pg.QtCore.QTimer()
+timer.timeout.connect(update)
+timer.start(50)
 
 
 win.show()
