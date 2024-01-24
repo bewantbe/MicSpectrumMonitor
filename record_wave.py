@@ -184,23 +184,23 @@ class analyzerData():
         
         self.rms = sqrt(RMS_sine_factor * sum(self.v ** 2) / len(self.v))
 
-    def getV(self):
-        self.lock_data.acquire()
+    def get_volt(self):
+        self.lock_data.acquire()  # TODO: rewrite using context management protocol (with lock:)
         tmpv = self.v.copy()
         self.lock_data.release()
         return tmpv
 
-    def getSpectrumDB(self):
+    def get_spectrum_dB(self):
         self.lock_data.acquire()
         tmps = self.sp_db.copy()
         self.lock_data.release()
         return tmps
 
-    def getRMS_dB(self):
+    def get_RMS_dB(self):
         np.seterr(divide='ignore')       # for God's sake
         return 20*log10(self.rms)  # already count RMS_db_sine_inc
 
-    def getFFTRMS_dBA(self):
+    def get_FFT_RMS_dBA(self):
         self.lock_data.acquire()
         fft_rms = sqrt(2 * sum(self.sp_vo) / self.wnd_factor / self.sz_fft / sum(self.wnd ** 2))
         self.lock_data.release()
@@ -357,7 +357,7 @@ class plotAudio:
     def plotVolt(self):
         analyzer_data = self.analyzer_data
         # volt
-        y = analyzer_data.getV()
+        y = analyzer_data.get_volt()
         if y.any():
             self.ax[0].set_ylim(np.array([-1.3, 1.3])*y.max())
             #self.fig.canvas.draw()
@@ -366,16 +366,16 @@ class plotAudio:
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sample_rate
         self.plt_line.set_data(x, y)        
         # RMS
-        rms = analyzer_data.getRMS_dB()
+        rms = analyzer_data.get_RMS_dB()
         self.text_1.set_text("RMS = %5.2f dB" % (rms))
 
     def plotSpectrum(self):
         analyzer_data = self.analyzer_data
         # spectrum
-        y = analyzer_data.getSpectrumDB()
+        y = analyzer_data.get_spectrum_dB()
         x = np.arange(0, len(y), dtype='float') / analyzer_data.sz_chunk * analyzer_data.sample_rate
         self.spectrum_line.set_data(x, y)
-        fft_rms = analyzer_data.getFFTRMS_dBA()
+        fft_rms = analyzer_data.get_FFT_RMS_dBA()
         self.text_2.set_text("RMS = %5.2f %s %s" % (fft_rms, self.str_dBA, self.str_normalize))
 
     def graph_update(self):
@@ -385,7 +385,7 @@ class plotAudio:
         analyzer_data = self.analyzer_data
         self.str_normalize = '(sine=0dB)' if RMS_normalize_to_sine else '(square=0dB)'
         self.str_dBA = 'dBA' if use_dBA else 'dB'
-        print("\rRMS: % 5.2f dB, % 5.2f %s %s   " % (analyzer_data.getRMS_dB(), analyzer_data.getFFTRMS_dBA(), self.str_dBA, self.str_normalize), end='')
+        print("\rRMS: % 5.2f dB, % 5.2f %s %s   " % (analyzer_data.get_RMS_dB(), analyzer_data.get_FFT_RMS_dBA(), self.str_dBA, self.str_normalize), end='')
         sys.stdout.flush()
         
         self.fig.canvas.restore_region(self.backgrounds[0])
@@ -420,13 +420,25 @@ def process_func(analyzer_data, condition_variable, chunk):
     with condition_variable:
         condition_variable.notify()
 
-class processThread(threading.Thread):
+class sampleChunkThread(threading.Thread):
     """ data dispatch thread """
-    def __init__(self, name, func_process, buf_que, sz_chunk, sz_hop=0):
+    def __init__(self, name, func_process, buf_que, channel_select, sz_chunk, sz_hop=0):
+        """
+        Param:
+            func_process: is the function to process data
+            buf_que: sampling data comes from this queue
+            channel_select: Channel is selected as sample_data[channel_select, :]
+            sz_chunk: is size of one feed to the process function
+            sz_hop: is the hop size between two feed,
+                    when sz_hop < sz_chunk, overlap happens;
+                    when sz_hop > sz_chunk, some data is ommited.
+                    sz_hop == 0 means sz_hop = sz_chunk.
+        """
         threading.Thread.__init__(self)
         self.name = name
         self.func_process = func_process
         self.buf_que = buf_que
+        self.channel_select = channel_select
         self.sz_chunk = sz_chunk
         self.sz_hop = sz_hop if sz_hop > 0 else sz_chunk
         self.b_run = False
@@ -445,7 +457,7 @@ class processThread(threading.Thread):
                 s = []
             if (len(s) == 0):
                 continue
-            s = s[0, :]                    # select left channel
+            s = s[self.channel_select, :]                    # select left channel
             s_pos = 0
             # `s` cross boundary
             while sz_chunk - chunk_pos <= len(s) - s_pos:
@@ -564,8 +576,8 @@ while b_start:
     func_proc = lambda data_chunk: process_func(analyzer_data, condition_variable, data_chunk)
 
     # init data dispatcher
-    process_thread = processThread('dispatch', func_proc, buf_queue,
-                                   size_chunk, size_chunk//2)
+    process_thread = sampleChunkThread('dispatch', func_proc, buf_queue, 0,
+                                       size_chunk, size_chunk//2)
     process_thread.start()
 
     rec_thread.start()

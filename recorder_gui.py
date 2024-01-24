@@ -9,11 +9,15 @@ from pyqtgraph.Qt import QtWidgets
 
 from record_wave import (
     recThread,
+    sampleChunkThread,
     analyzerData
 )
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main Window for monitoring and recording the Mic/ADC signals."""
+
+    signal_plot_data = pg.QtCore.Signal(object)
+
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
 
@@ -119,10 +123,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 'periodsize': 1024,
                 'format'    : 'S16_LE',
             }
+        self.adc_conf = adc_conf
 
         ## setup data gernerator and analyzer
-        buf_queue = Queue(10000)
-        rec_thread = recThread('rec', buf_queue, adc_conf)
+        self.buf_queue = Queue(10000)
+        self.rec_thread = recThread('rec', self.buf_queue, adc_conf)
 
         ana_conf = {
             'size_chunk': 1024,
@@ -130,10 +135,19 @@ class MainWindow(QtWidgets.QMainWindow):
             'use_dBA': False,
             # TODO: calibration_path
         }
+        self.ana_conf = ana_conf
 
         # init analyzer data
-        analyzer_data = analyzerData(ana_conf['size_chunk'], adc_conf['sample_rate'], ana_conf['n_ave'])
-        analyzer_data.use_dBA = ana_conf['use_dBA']
+        self.analyzer_data = analyzerData(
+            ana_conf['size_chunk'], adc_conf['sample_rate'], ana_conf['n_ave'])
+        self.analyzer_data.use_dBA = ana_conf['use_dBA']
+
+        self.chunk_process_thread = sampleChunkThread(
+            'dispatch', self.func_proc_update, self.buf_queue, 0,
+            ana_conf['size_chunk'], ana_conf['size_chunk']//2)
+        
+        # deal with the signals for plot
+        self.signal_plot_data.connect(self.update_graph, pg.QtCore.Qt.ConnectionType.QueuedConnection)
 
     def open_file_dialog(self):
         self.save_file_name = QtWidgets.QFileDialog.getSaveFileName()[0]
@@ -146,9 +160,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def stop_rec(self):
         self.area.restoreState(self.state)
     
-    def update(self, arr_volt, arr_sp_db):
-        self.d1_plot.setData(np.random.normal(size=100))
-        self.d2_plot.setData(np.random.normal(size=100))
+    def func_proc_update(self, data_chunk):
+        # usually called from data processing thread
+        self.analyzer_data.put(data_chunk)
+        rms_db = self.analyzer_data.get_RMS_dB()
+        volt = self.analyzer_data.get_volt()
+        spectrum_db = self.analyzer_data.get_spectrum_dB()
+        self.signal_plot_data.emit(rms_db, volt, spectrum_db)
+    
+    def update_graph(self, rms_db, volt, spectrum_db):
+        # usually called from main thread
+        self.d1_plot.setData(volt)
+        self.d2_plot.setData(spectrum_db)
         self.w3_img.setImage(np.random.normal(size=(100,100)))
 
 
