@@ -49,7 +49,7 @@ class recThread(threading.Thread):
         self.buf_que = buf_que    # "output" port of recording data
         self.conf = conf
         self.periodsize = conf['periodsize']
-        self.sampler = get_sampler(conf)
+        self.sampler = get_sampler(conf.pop('sampler_id'))
         self.b_run = False
     
     def run(self):
@@ -73,8 +73,8 @@ class recThread(threading.Thread):
 # Analyze data
 class analyzerData():
     """ Data analyzer """
-    def __init__(self, sz_chunk, rec_th, ave_num = 1):
-        self.sample_rate = rec_th.conf['sample_rate']
+    def __init__(self, sz_chunk, sample_rate, ave_num = 1):
+        self.sample_rate = sample_rate
         self.sz_chunk = sz_chunk     # data size for one FFT
         self.sz_fft   = sz_chunk     # FFT frequency points
         self.rms = 0
@@ -280,7 +280,7 @@ class plotAudio:
         elif k == 'a':
             global use_dBA
             use_dBA = not use_dBA
-            analyzer_data.use_dBA = use_dBA
+            self.analyzer_data.use_dBA = use_dBA
             print('Toggled dBA or dB')
         elif k == 'f2':
             set_RMS_normalize_factor(not RMS_normalize_to_sine)
@@ -413,27 +413,29 @@ class plotAudio:
             self.graph_update()    # need lock or not?
         plt.close(self.fig)
 
+def process_func(analyzer_data, condition_variable, chunk):
+    """ process data """
+    analyzer_data.put(chunk)
+    # notify UI thread (for plot) that new data comes
+    with condition_variable:
+        condition_variable.notify()
+
 class processThread(threading.Thread):
     """ data dispatch thread """
-    def __init__(self, name, buf_que, condition_variable, sz_chunk, sz_hop=0):
+    def __init__(self, name, func_process, buf_que, sz_chunk, sz_hop=0):
         threading.Thread.__init__(self)
         self.name = name
+        self.func_process = func_process
         self.buf_que = buf_que
-        self.b_run = False
         self.sz_chunk = sz_chunk
         self.sz_hop = sz_hop if sz_hop > 0 else sz_chunk
-        self.cv = condition_variable
-
-    def process(self, chunk):
-        analyzer_data.put(chunk)
-        # notify UI thread (for plot) that new data comes
-        with self.cv:
-            self.cv.notify()
+        self.b_run = False
 
     def run(self):
+        """Continuousely poll data from the queue"""
         self.b_run = True
         sz_chunk = self.sz_chunk
-        s_chunk = np.zeros(sz_chunk)
+        chunk_feed = np.zeros(sz_chunk)
         chunk_pos = 0             # position in chunk
         # collect sampling data, call process() when ever get sz_chunk data
         while self.b_run:
@@ -447,13 +449,13 @@ class processThread(threading.Thread):
             s_pos = 0
             # `s` cross boundary
             while sz_chunk - chunk_pos <= len(s) - s_pos:
-                s_chunk[chunk_pos:] = s[s_pos : s_pos+sz_chunk-chunk_pos]
+                chunk_feed[chunk_pos:] = s[s_pos : s_pos+sz_chunk-chunk_pos]
                 s_pos += sz_chunk-chunk_pos
-                self.process(s_chunk)
+                self.func_process(chunk_feed)
                 chunk_pos = sz_chunk - self.sz_hop
-                s_chunk[0:chunk_pos] = s_chunk[self.sz_hop:]
+                chunk_feed[0:chunk_pos] = chunk_feed[self.sz_hop:]
 
-            s_chunk[chunk_pos : chunk_pos+len(s)-s_pos] = s[s_pos:]   # s is fit into chunk
+            chunk_feed[chunk_pos : chunk_pos+len(s)-s_pos] = s[s_pos:]   # s is fit into chunk
             chunk_pos += len(s)-s_pos
         print('Thread ', self.name, ' exited.')
 
@@ -549,7 +551,7 @@ while b_start:
     rec_thread = recThread('rec', buf_queue, conf)
 
     # init analyzer data
-    analyzer_data = analyzerData(size_chunk, rec_thread, n_ave)
+    analyzer_data = analyzerData(size_chunk, rec_thread.conf['sample_rate'], n_ave)
     analyzer_data.loadCalib(calib_path)
     analyzer_data.use_dBA = use_dBA
 
@@ -559,8 +561,11 @@ while b_start:
     # init ploter
     plot_audio = plotAudio(analyzer_data, condition_variable)
 
+    func_proc = lambda data_chunk: process_func(analyzer_data, condition_variable, data_chunk)
+
     # init data dispatcher
-    process_thread = processThread('dispatch', buf_queue, condition_variable, size_chunk, size_chunk//2)
+    process_thread = processThread('dispatch', func_proc, buf_queue,
+                                   size_chunk, size_chunk//2)
     process_thread.start()
 
     rec_thread.start()

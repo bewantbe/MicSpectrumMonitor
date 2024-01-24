@@ -1,3 +1,4 @@
+from queue import Queue
 import numpy as np
 
 import pyqtgraph as pg
@@ -6,16 +7,23 @@ from pyqtgraph.dockarea.Dock import Dock
 from pyqtgraph.dockarea.DockArea import DockArea
 from pyqtgraph.Qt import QtWidgets
 
+from record_wave import (
+    recThread,
+    analyzerData
+)
+
 class MainWindow(QtWidgets.QMainWindow):
     """Main Window for monitoring and recording the Mic/ADC signals."""
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
 
+        ## setup window
         area = DockArea()
         self.setCentralWidget(area)
         self.resize(1000,500)
         self.setWindowTitle('Spectrum Analyzer')
 
+        ## setup layout
         dock1 = Dock("Waveform", size=(100, 200))
         dock2 = Dock("Spectrum", size=(500, 300), closable=True)
         dock3 = Dock("Spectrogram", size=(500,400))
@@ -48,8 +56,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.d2_plot = d2_plot
 
         ## Dock 3
-        #widg3 = pg.ImageView()
-
+        # TODO: add color bar
         widg3 = pg.GraphicsView()
         vb3 = pg.ViewBox()
         widg3.setCentralItem(vb3)
@@ -96,6 +103,38 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.show()
 
+        pcm_device = 'mic'
+        if pcm_device == 'ad7606c':
+            adc_conf = {
+                'sampler_id': 'ad7606c',
+                'sample_rate': 48000,
+                'periodsize': 4800,
+            }
+        else:
+            adc_conf = {
+                'sampler_id': 'mic',
+                'device'    : 'default',
+                'n_channels': 1,
+                'sample_rate': 48000,
+                'periodsize': 1024,
+                'format'    : 'S16_LE',
+            }
+
+        ## setup data gernerator and analyzer
+        buf_queue = Queue(10000)
+        rec_thread = recThread('rec', buf_queue, adc_conf)
+
+        ana_conf = {
+            'size_chunk': 1024,
+            'n_ave': 1,
+            'use_dBA': False,
+            # TODO: calibration_path
+        }
+
+        # init analyzer data
+        analyzer_data = analyzerData(ana_conf['size_chunk'], adc_conf['sample_rate'], ana_conf['n_ave'])
+        analyzer_data.use_dBA = ana_conf['use_dBA']
+
     def open_file_dialog(self):
         self.save_file_name = QtWidgets.QFileDialog.getSaveFileName()[0]
         self.file_path_edit.setText(self.save_file_name)
@@ -103,11 +142,11 @@ class MainWindow(QtWidgets.QMainWindow):
     def save_rec(self):
         self.state = self.area.saveState()
         self.stop_rec_btn.setEnabled(True)
-        
+    
     def stop_rec(self):
         self.area.restoreState(self.state)
-
-    def update(self):
+    
+    def update(self, arr_volt, arr_sp_db):
         self.d1_plot.setData(np.random.normal(size=100))
         self.d2_plot.setData(np.random.normal(size=100))
         self.w3_img.setImage(np.random.normal(size=(100,100)))
