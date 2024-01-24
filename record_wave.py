@@ -459,7 +459,7 @@ class sampleChunkThread(threading.Thread):
         """Continuousely poll data from the queue"""
         self.b_run = True
         sz_chunk = self.sz_chunk
-        chunk_feed = np.zeros(sz_chunk)
+        chunk_feed = None
         chunk_pos = 0             # position in chunk
         # collect sampling data, call process() when ever get sz_chunk data
         while self.b_run:
@@ -469,7 +469,12 @@ class sampleChunkThread(threading.Thread):
                 s = []
             if (len(s) == 0):
                 continue
-            s = s[self.channel_select, :]                    # select left channel
+            s = s[self.channel_select, :]
+            if chunk_feed is None:
+                if len(s.shape) == 2:
+                    chunk_feed = np.zeros(s.shape[0], sz_chunk)
+                else: # vector
+                    chunk_feed = np.zeros(sz_chunk)
             s_pos = 0
             # `s` cross boundary
             while sz_chunk - chunk_pos <= len(s) - s_pos:

@@ -127,7 +127,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         ## setup data gernerator and analyzer
         self.buf_queue = Queue(10000)
-        self.rec_thread = recThread('rec', self.buf_queue, adc_conf)
+        self.rec_thread = recThread('recorder', self.buf_queue, adc_conf)
 
         ana_conf = {
             'size_chunk': 1024,
@@ -143,11 +143,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.analyzer_data.use_dBA = ana_conf['use_dBA']
 
         self.chunk_process_thread = sampleChunkThread(
-            'dispatch', self.func_proc_update, self.buf_queue, 0,
+            'chunking', self.func_proc_update, self.buf_queue, 0,
             ana_conf['size_chunk'], ana_conf['size_chunk']//2)
         
         # deal with the signals for plot
         self.signal_plot_data.connect(self.update_graph, pg.QtCore.Qt.ConnectionType.QueuedConnection)
+
+        # Connect the custom closeEvent
+        self.closeEvent = self.custom_close_event
+
+        self.rec_thread.start()
+        self.chunk_process_thread.start()
 
     def open_file_dialog(self):
         self.save_file_name = QtWidgets.QFileDialog.getSaveFileName()[0]
@@ -166,13 +172,20 @@ class MainWindow(QtWidgets.QMainWindow):
         rms_db = self.analyzer_data.get_RMS_dB()
         volt = self.analyzer_data.get_volt()
         spectrum_db = self.analyzer_data.get_spectrum_dB()
-        self.signal_plot_data.emit(rms_db, volt, spectrum_db)
+        self.signal_plot_data.emit((rms_db, volt, spectrum_db))
     
-    def update_graph(self, rms_db, volt, spectrum_db):
+    # TODO: add decorator for callbacks
+    def update_graph(self, obj):
+        rms_db, volt, spectrum_db = obj
         # usually called from main thread
         self.d1_plot.setData(volt)
         self.d2_plot.setData(spectrum_db)
         self.w3_img.setImage(np.random.normal(size=(100,100)))
+    
+    def custom_close_event(self, event):
+        self.rec_thread.b_run = False
+        self.chunk_process_thread.b_run = False
+        event.accept()  # Accept the close event
 
 
 app = pg.mkQApp("DockArea Example")
