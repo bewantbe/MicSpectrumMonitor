@@ -1,4 +1,5 @@
 
+import numpy as np
 import struct      # unpack the packed bytes
 import alsaaudio
 from . import tssabc
@@ -34,7 +35,7 @@ class AlsaAudio(tssabc.SampleReader):
                 sample_d[i] = v - ((v & 0x800000) << 1)
             sample_d /= 0x1000000 * 1.0
         # separate channels
-        sample_d = sample_d.reshape((len(sample_d)//self.n_channels, self.n_channels)).T
+        sample_d = sample_d.reshape((len(sample_d)//self.n_channels, self.n_channels))
         return sample_d
 
     def read(self, n_frames):

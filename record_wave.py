@@ -469,10 +469,11 @@ class sampleChunkThread(threading.Thread):
                 s = []
             if (len(s) == 0):
                 continue
-            s = s[self.channel_select, :]
+            if len(s.shape) == 2:
+                s = s[:, self.channel_select]
             if chunk_feed is None:
                 if len(s.shape) == 2:
-                    chunk_feed = np.zeros(s.shape[0], sz_chunk)
+                    chunk_feed = np.zeros(sz_chunk, s.shape[0])
                 else: # vector
                     chunk_feed = np.zeros(sz_chunk)
             s_pos = 0

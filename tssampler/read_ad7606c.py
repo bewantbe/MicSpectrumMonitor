@@ -33,7 +33,7 @@ class AD7606CReader(tssabc.SampleReader):
             # we better wait for more data
             time.sleep(t_wait)
         v = self.adc.read(n_frames)   # non-block
-        a = np.array(v).reshape((len(v)//self.n_channels, self.n_channels)).T
+        a = np.array(v).reshape((len(v)//self.n_channels, self.n_channels))
         return (a - 0) / 32768.0
 
     def close(self):

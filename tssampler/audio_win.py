@@ -39,8 +39,11 @@ class MicReader(tssabc.SampleReader):
             n_frames = self.chunk_size
         data = self.stream.read(n_frames)
         vals = struct.unpack('h' * (len(data) // 2), data)
-        # or try numpy.frombuffer
-        return np.array(vals).reshape((1, len(vals))) / 32768.0
+        # TODO: or try numpy.frombuffer
+        sample_d = np.array(vals) / 32768.0
+        # separate channels
+        sample_d = sample_d.reshape((len(sample_d)//self.n_channels, self.n_channels))
+        return sample_d
 
     def close(self):
         self.stream.stop_stream()

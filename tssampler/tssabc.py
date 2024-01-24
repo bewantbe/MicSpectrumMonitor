@@ -59,7 +59,7 @@ class SampleReader(ABC):
     @abstractmethod
     def read(self, n_frames):
         """Read at most n_frames frames of audio/ADC values etc.
-        Return decoded data.
+        Return decoded data (numpy array-like), with shape (n_r_frames, n_ch).
         """
     
     def close(self):
