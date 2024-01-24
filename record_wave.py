@@ -579,11 +579,14 @@ if __name__ == '__main__':
         # init ploter
         plot_audio = plotAudio(analyzer_data, condition_variable)
 
-        func_proc = lambda data_chunk: process_func(analyzer_data, condition_variable, data_chunk)
+        func_proc = lambda data_chunk: process_func(
+            analyzer_data, condition_variable, data_chunk)
 
         # init data dispatcher
-        process_thread = sampleChunkThread('dispatch', func_proc, buf_queue, 0,
-                                        size_chunk, size_chunk//2)
+        channel_selected = 0
+        process_thread = sampleChunkThread('dispatch',
+            func_proc, buf_queue, channel_selected,
+            size_chunk, size_chunk//2)
         process_thread.start()
 
         rec_thread.start()

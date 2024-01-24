@@ -5,7 +5,10 @@ import pyqtgraph as pg
 #from pyqtgraph.console import ConsoleWidget
 from pyqtgraph.dockarea.Dock import Dock
 from pyqtgraph.dockarea.DockArea import DockArea
-from pyqtgraph.Qt import QtWidgets
+from pyqtgraph.Qt import (
+    QtCore,
+    QtWidgets
+)
 
 from record_wave import (
     recThread,
@@ -152,8 +155,34 @@ class MainWindow(QtWidgets.QMainWindow):
         # Connect the custom closeEvent
         self.closeEvent = self.custom_close_event
 
+        self.rec_plot_prop = self.RecPlotProperties(self.analyzer_data)
+        self.rec_plot_prop.config_plots(self)
+
         self.rec_thread.start()
         self.chunk_process_thread.start()
+
+    class RecPlotProperties:
+        """A namespace (structure) like class"""
+        def __init__(self, analyzer):
+            self.log_mode = False
+            self.update_by_analyzer(analyzer)
+
+        def update_by_analyzer(self, analyzer):
+            self.max_freq = analyzer.fqs[-1]
+            self.n_freq = analyzer.sz_fft
+            self.x_freq = analyzer.fqs
+
+        @property
+        def spectrum_plot_range(self):
+            rg = QtCore.QRectF(*map(float, [0, -120, self.max_freq, 120]))
+            return rg  # x, y, width, height
+
+        def config_plots(self, plot_set):
+            if self.log_mode:
+                pass
+            else:
+                plot_set.widg2.setRange(self.spectrum_plot_range)
+                #plot_set.d2_plot.setData(x = self.x_freq)
 
     def open_file_dialog(self):
         self.save_file_name = QtWidgets.QFileDialog.getSaveFileName()[0]
@@ -169,17 +198,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def func_proc_update(self, data_chunk):
         # usually called from data processing thread
         self.analyzer_data.put(data_chunk)
+        fqs = self.analyzer_data.fqs
         rms_db = self.analyzer_data.get_RMS_dB()
         volt = self.analyzer_data.get_volt()
         spectrum_db = self.analyzer_data.get_spectrum_dB()
-        self.signal_plot_data.emit((rms_db, volt, spectrum_db))
+        self.signal_plot_data.emit((rms_db, volt, fqs, spectrum_db))
     
     # TODO: add decorator for callbacks
     def update_graph(self, obj):
-        rms_db, volt, spectrum_db = obj
+        rms_db, volt, fqs, spectrum_db = obj
         # usually called from main thread
         self.d1_plot.setData(volt)
-        self.d2_plot.setData(spectrum_db)
+        self.d2_plot.setData(x = fqs, y = spectrum_db)
         self.w3_img.setImage(np.random.normal(size=(100,100)))
     
     def custom_close_event(self, event):
