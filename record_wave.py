@@ -73,10 +73,11 @@ class recThread(threading.Thread):
 # Analyze data
 class analyzerData():
     """ Data analyzer """
-    def __init__(self, sz_chunk, sample_rate, ave_num = 1):
+    def __init__(self, sz_chunk, sample_rate, ave_num = 1, RMS_normalize_to_sine = False):
         self.sample_rate = sample_rate
         self.sz_chunk = sz_chunk     # data size for one FFT
         self.sz_fft   = sz_chunk     # FFT frequency points
+        self.update_RMS_normalize_to_sine(RMS_normalize_to_sine)
         self.rms = 0
         self.v = np.zeros(sz_chunk)
         # hold spectrums, no negative frequency
@@ -90,7 +91,7 @@ class analyzerData():
         self.wnd = 0.5 + 0.5 * np.cos((np.arange(1, sz_chunk+1) / (sz_chunk+1.0) - 0.5) * 2 * np.pi)
 #        self.wnd = np.ones(sz_chunk)
         self.wnd *= len(self.wnd) / sum(self.wnd)
-        self.wnd_factor = RMS_sine_factor * 2.0 / sum(self.wnd) ** 2
+        self.wnd_factor = self.RMS_sine_factor * 2.0 / sum(self.wnd) ** 2
         # factor for dBA
         sqr = lambda x: x*x
         fqs = 1.0 * np.arange(len(self.sp_vo)) / self.sz_fft * self.sample_rate
@@ -99,6 +100,16 @@ class analyzerData():
         self.dBAFactor = r * r * 10 ** (1/5.0)
         self.use_dBA = False
         self.loadCalib('')
+
+    def update_RMS_normalize_to_sine(self, z_sine):
+        # Note: RMS(sine) + 10*log10(2) = RMS(square)
+        self.RMS_normalize_to_sine = z_sine
+        if z_sine:
+            self.RMS_sine_factor = 2.0
+            self.RMS_db_sine_inc = 10*log10(2.0)
+        else:
+            self.RMS_sine_factor = 1.0
+            self.RMS_db_sine_inc = 0.0
 
     def loadCalib(self, fname):
         if len(fname) == 0:  # clear the calibration
@@ -182,7 +193,7 @@ class analyzerData():
             self.lock_data.release()
             self.sp_cumulate[:] = 0
         
-        self.rms = sqrt(RMS_sine_factor * sum(self.v ** 2) / len(self.v))
+        self.rms = sqrt(self.RMS_sine_factor * sum(self.v ** 2) / len(self.v))
 
     def get_volt(self):
         self.lock_data.acquire()  # TODO: rewrite using context management protocol (with lock:)
@@ -205,7 +216,7 @@ class analyzerData():
         fft_rms = sqrt(2 * sum(self.sp_vo) / self.wnd_factor / self.sz_fft / sum(self.wnd ** 2))
         self.lock_data.release()
         np.seterr(divide='ignore')       # for God's sake
-        return 20*log10(fft_rms) + RMS_db_sine_inc
+        return 20*log10(fft_rms) + self.RMS_db_sine_inc
 
 class FPSLimiter:
     """ fps limiter """
@@ -283,7 +294,8 @@ class plotAudio:
             self.analyzer_data.use_dBA = use_dBA
             print('Toggled dBA or dB')
         elif k == 'f2':
-            set_RMS_normalize_factor(not RMS_normalize_to_sine)
+            self.analyzer_data.update_RMS_normalize_to_sine(
+                not self.analyzer_data.RMS_normalize_to_sine)
             print('RMS sine or square')
         elif k == 'f3':
             ad = self.analyzer_data
@@ -343,7 +355,7 @@ class plotAudio:
         calib = analyzer_data.calib_db if len(analyzer_data.calib_db) \
             else np.zeros(len(analyzer_data.fqs))
         fqs = analyzer_data.fqs
-        sp = -calib + WhiteSource.spectrumLevel(analyzer_data.wnd, RMS_db_sine_inc)
+        sp = -calib + WhiteSource.spectrumLevel(analyzer_data.wnd, self.analyzer_data.RMS_db_sine_inc)
         self.ax[1].plot(fqs, sp, 'r')
     
     def saveBackground(self):
@@ -383,7 +395,7 @@ class plotAudio:
             return
 
         analyzer_data = self.analyzer_data
-        self.str_normalize = '(sine=0dB)' if RMS_normalize_to_sine else '(square=0dB)'
+        self.str_normalize = '(sine=0dB)' if self.analyzer_data.RMS_normalize_to_sine else '(square=0dB)'
         self.str_dBA = 'dBA' if use_dBA else 'dB'
         print("\rRMS: % 5.2f dB, % 5.2f %s %s   " % (analyzer_data.get_RMS_dB(), analyzer_data.get_FFT_RMS_dBA(), self.str_dBA, self.str_normalize), end='')
         sys.stdout.flush()
@@ -474,119 +486,107 @@ class sampleChunkThread(threading.Thread):
 ###########################################################################
 # main
 
-# parse input parameters
-import getopt
-param_fmt_short = 'd:n:l:'
-param_fmt_long = ['device=', 'n-ave=', 'fftlen=', 'calib=', 'dBA', 'db-sine']
-options, options_other = getopt.getopt(sys.argv[1:], param_fmt_short, param_fmt_long)
+if __name__ == '__main__':
 
-# default values
-pcm_device = 'default'
-size_chunk = 16384
-n_ave = 1
-calib_path = ''
-use_dBA = False
-RMS_normalize_to_sine = False
+    # parse input parameters
+    import getopt
+    param_fmt_short = 'd:n:l:'
+    param_fmt_long = ['device=', 'n-ave=', 'fftlen=', 'calib=', 'dBA', 'db-sine']
+    options, options_other = getopt.getopt(sys.argv[1:], param_fmt_short, param_fmt_long)
 
-for opt, arg in options:
-    if opt in ('-d', '--device'):
-        pcm_device = arg
-    elif opt in ('-l', '--fftlen'):
-        size_chunk = int(arg)
-    elif opt in ('-n', '--n-ave'):
-        n_ave = int(arg)
-    elif opt == '--calib':
-        calib_path = arg
-    elif opt == '--dBA':
-        use_dBA = True
-    elif opt == '--db-sine':
-        RMS_normalize_to_sine = True
+    # default values
+    pcm_device = 'default'
+    size_chunk = 16384
+    n_ave = 1
+    calib_path = ''
+    use_dBA = False
+    RMS_normalize_to_sine = False
 
-# Note: RMS(sine) + 10*log10(2) = RMS(square)
-def set_RMS_normalize_factor(RMS_sine):
-    global RMS_sine_factor
-    global RMS_db_sine_inc
-    global RMS_normalize_to_sine
-    if RMS_sine:
-        RMS_sine_factor = 2.0
-        RMS_db_sine_inc = 10*log10(2.0)
-    else:
-        RMS_sine_factor = 1.0
-        RMS_db_sine_inc = 0.0
-    RMS_normalize_to_sine = RMS_sine
+    for opt, arg in options:
+        if opt in ('-d', '--device'):
+            pcm_device = arg
+        elif opt in ('-l', '--fftlen'):
+            size_chunk = int(arg)
+        elif opt in ('-n', '--n-ave'):
+            n_ave = int(arg)
+        elif opt == '--calib':
+            calib_path = arg
+        elif opt == '--dBA':
+            use_dBA = True
+        elif opt == '--db-sine':
+            RMS_normalize_to_sine = True
 
-set_RMS_normalize_factor(RMS_normalize_to_sine)
+    # buffer that transmit data from recorder to processor
+    buf_queue = queue.Queue(10000)
 
-# buffer that transmit data from recorder to processor
-buf_queue = queue.Queue(10000)
+    b_start = True
+    while b_start:
+        b_start = False
+        print("FFT len:", size_chunk)
+        print("  n_ave:", n_ave)
+        # prepare recorder
+        print("using device: ", pcm_device)
+        if pcm_device == 'default':
+            conf = {
+                'sampler_id': 'mic',
+                'device'    : 'default',
+                'n_channels': 1,
+                'sample_rate': 48000,
+                'periodsize': 1024,
+                'format'    : 'S16_LE',
+            }
+        elif pcm_device == 'hw:CARD=U18dB,DEV=0':
+            conf = {
+                'sampler_id': 'mic',
+                'device'    : 'hw:CARD=U18dB,DEV=0',
+                'n_channels': 2,
+                'sample_rate': 48000,
+                'periodsize': 1024,
+                'format'    : 'S24_LE',
+            }
+        elif pcm_device == 'ad7606c':
+            conf = {
+                'sampler_id': 'ad7606c',
+                'sample_rate': 48000,
+                'periodsize': 4800,
+            }
+        else:
+            conf = {
+                'sampler_id': 'mic',
+                'device'    : 'default',
+                'n_channels': 1,
+                'sample_rate': 48000,
+                'periodsize': 1024,
+                'format'    : 'S16_LE',
+            }
+        rec_thread = recThread('rec', buf_queue, conf)
 
-b_start = True
-while b_start:
-    b_start = False
-    print("FFT len:", size_chunk)
-    print("  n_ave:", n_ave)
-    # prepare recorder
-    print("using device: ", pcm_device)
-    if pcm_device == 'default':
-        conf = {
-            'sampler_id': 'mic',
-            'device'    : 'default',
-            'n_channels': 1,
-            'sample_rate': 48000,
-            'periodsize': 1024,
-            'format'    : 'S16_LE',
-        }
-    elif pcm_device == 'hw:CARD=U18dB,DEV=0':
-        conf = {
-            'sampler_id': 'mic',
-            'device'    : 'hw:CARD=U18dB,DEV=0',
-            'n_channels': 2,
-            'sample_rate': 48000,
-            'periodsize': 1024,
-            'format'    : 'S24_LE',
-        }
-    elif pcm_device == 'ad7606c':
-        conf = {
-            'sampler_id': 'ad7606c',
-            'sample_rate': 48000,
-            'periodsize': 4800,
-        }
-    else:
-        conf = {
-            'sampler_id': 'mic',
-            'device'    : 'default',
-            'n_channels': 1,
-            'sample_rate': 48000,
-            'periodsize': 1024,
-            'format'    : 'S16_LE',
-        }
-    rec_thread = recThread('rec', buf_queue, conf)
+        # init analyzer data
+        analyzer_data = analyzerData(size_chunk, rec_thread.conf['sample_rate'],
+                                     n_ave, RMS_normalize_to_sine)
+        analyzer_data.loadCalib(calib_path)
+        analyzer_data.use_dBA = use_dBA
 
-    # init analyzer data
-    analyzer_data = analyzerData(size_chunk, rec_thread.conf['sample_rate'], n_ave)
-    analyzer_data.loadCalib(calib_path)
-    analyzer_data.use_dBA = use_dBA
+        # lock for UI thread
+        condition_variable = threading.Condition()
 
-    # lock for UI thread
-    condition_variable = threading.Condition()
+        # init ploter
+        plot_audio = plotAudio(analyzer_data, condition_variable)
 
-    # init ploter
-    plot_audio = plotAudio(analyzer_data, condition_variable)
+        func_proc = lambda data_chunk: process_func(analyzer_data, condition_variable, data_chunk)
 
-    func_proc = lambda data_chunk: process_func(analyzer_data, condition_variable, data_chunk)
+        # init data dispatcher
+        process_thread = sampleChunkThread('dispatch', func_proc, buf_queue, 0,
+                                        size_chunk, size_chunk//2)
+        process_thread.start()
 
-    # init data dispatcher
-    process_thread = sampleChunkThread('dispatch', func_proc, buf_queue, 0,
-                                       size_chunk, size_chunk//2)
-    process_thread.start()
+        rec_thread.start()
 
-    rec_thread.start()
+        plot_audio.show()
 
-    plot_audio.show()
+        rec_thread.b_run = False
+        process_thread.b_run = False
 
-    rec_thread.b_run = False
-    process_thread.b_run = False
-
-print('\nExiting...')
+    print('\nExiting...')
 
 # vim: set expandtab shiftwidth=4 softtabstop=4:

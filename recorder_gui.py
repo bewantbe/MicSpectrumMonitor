@@ -137,7 +137,7 @@ class MainWindow(QtWidgets.QMainWindow):
         }
         self.ana_conf = ana_conf
 
-        # init analyzer data
+        # init FFT Analyzer
         self.analyzer_data = analyzerData(
             ana_conf['size_chunk'], adc_conf['sample_rate'], ana_conf['n_ave'])
         self.analyzer_data.use_dBA = ana_conf['use_dBA']
