@@ -50,6 +50,7 @@ class MainWindow(QtWidgets.QMainWindow):
         ## Dock 1
         widg1 = pg.PlotWidget(title="Waveform")
         d1_plot = widg1.plot(np.random.normal(size=100))
+        widg1.getPlotItem().getAxis('left').setWidth(50)
         dock1.addWidget(widg1)
         self.widg1 = widg1
         self.d1_plot = d1_plot
