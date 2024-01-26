@@ -473,7 +473,7 @@ class sampleChunkThread(threading.Thread):
                 s = s[:, self.channel_select]
             if chunk_feed is None:
                 if len(s.shape) == 2:
-                    chunk_feed = np.zeros(sz_chunk, s.shape[0])
+                    chunk_feed = np.zeros((sz_chunk, s.shape[1]))
                 else: # vector
                     chunk_feed = np.zeros(sz_chunk)
             s_pos = 0
@@ -487,7 +487,7 @@ class sampleChunkThread(threading.Thread):
 
             chunk_feed[chunk_pos : chunk_pos+len(s)-s_pos] = s[s_pos:]   # s is fit into chunk
             chunk_pos += len(s)-s_pos
-        print('Thread ', self.name, ' exited.')
+        print('Thread', self.name, 'exited.')
 
 ###########################################################################
 # main

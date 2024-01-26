@@ -24,6 +24,17 @@ from record_wave import (
     analyzerData
 )
 
+"""
+Roadmap:
+--------
+
+* Introduce and test multi-channels, monitor and recorder
+* apply analysis to multi-cahnnels
+* write spectrogram show (1 channel then n-cahnnels)
+* User interaction design
+
+"""
+
 class AudioSaver:
     def __init__(self):
         self.wav_handler = None
@@ -209,12 +220,12 @@ class MainWindow(QtWidgets.QMainWindow):
             }
         else:
             adc_conf = {
-                'sampler_id': 'mic',
-                'device'    : 'default',
-                'n_channels': 1,
-                'sample_rate': 48000,
-                'periodsize': 1024,
-                'format'    : 'S16_LE',
+                'sampler_id'   : 'mic',
+                'device'       : 'default',
+                'sample_rate'  : 48000,
+                'n_channels'   : 2,
+                'value_format' : 'S16_LE',
+                'periodsize'   : 1024,
             }
         self.adc_conf = adc_conf
         self.bit_depth = 16       # assume always S16_LE
@@ -238,9 +249,11 @@ class MainWindow(QtWidgets.QMainWindow):
             ana_conf['size_chunk'], adc_conf['sample_rate'], ana_conf['n_ave'])
         self.analyzer_data.use_dBA = ana_conf['use_dBA']
 
-        self.chunk_process_thread = sampleChunkThread(
-            'chunking', self.func_proc_update, self.buf_queue, 0,
-            ana_conf['size_chunk'], ana_conf['size_chunk']//2)
+        self.channel_selected = [0,1]  # select channel(s) by a index or vector of indexes
+        self.chunk_process_thread = sampleChunkThread('chunking',
+            self.func_proc_update, self.buf_queue, self.channel_selected,
+            sz_chunk = ana_conf['size_chunk'],
+            sz_hop = ana_conf['size_chunk']//2)
         
         # deal with the signals for plot
         self.signal_plot_data.connect(self.update_graph, pg.QtCore.Qt.ConnectionType.QueuedConnection)
@@ -306,6 +319,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.wav_writer_thread = RecorderWriteThread(
             self.wav_data_queue, AudioSaver(), wav_saver_conf)
         self.wav_writer_thread.start()
+        # check bad file name
         print('waiting recorder to start...', end='')
         self.wav_writer_thread._initilized.wait()
         print('Done.')
@@ -324,7 +338,7 @@ class MainWindow(QtWidgets.QMainWindow):
     
     def simple_message_box(self, msg_text):
         msg = QtWidgets.QMessageBox()
-        #msg.setIcon(QtWidgets.QMessageBox.information)
+        #msg.setIcon(QtWidgets.QMessageBox.Information)
         msg.setText(msg_text)
         msg.setWindowTitle("Recording saved")
         msg.setStandardButtons(PyQt6.QtWidgets.QMessageBox.StandardButton.Ok)
@@ -337,7 +351,7 @@ class MainWindow(QtWidgets.QMainWindow):
               self.wav_writer_thread.is_running():
             self.wav_data_queue.put(data_chunk)   # TODO: should we copy the data?
         # analysing
-        self.analyzer_data.put(data_chunk)
+        self.analyzer_data.put(data_chunk[:,1])
         fqs = self.analyzer_data.fqs
         rms_db = self.analyzer_data.get_RMS_dB()
         volt = self.analyzer_data.get_volt()
@@ -345,7 +359,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # plot
         self.signal_plot_data.emit((rms_db, volt, fqs, spectrum_db))
     
-    # TODO: add decorator for callbacks
+    # TODO: annotate callbacks using decorator
     def update_graph(self, obj):
         # usually called from main thread
         rms_db, volt, fqs, spectrum_db = obj

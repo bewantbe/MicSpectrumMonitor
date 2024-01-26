@@ -14,19 +14,23 @@ class MicReader(tssabc.SampleReader):
     def __init__(self):
         self.initilized = False
 
-    def init(self, sample_rate, periodsize, stream_callback=None, **kwargs):
+    def init(self, device, sample_rate, n_channels, value_format, periodsize, stream_callback=None):
+        # value_format: S16_LE, int16
+        # device: device index
         # Ref. https://people.csail.mit.edu/hubert/pyaudio/docs/
         self.pya = pyaudio.PyAudio()
         self.sample_rate = sample_rate
         self.chunk_size = periodsize   # TODO: are they the same
-        self.dtype = 'int16'
-        self.n_channels = 1
+        self.dtype = value_format      # TODO: not really used yet
+        self.n_channels = n_channels
+        if device == 'default':
+            device = None
         self.stream = self.pya.open(
             rate = self.sample_rate,
             channels = self.n_channels,
             format = pyaudio.paInt16,
             input = True,
-            input_device_index = None,
+            input_device_index = device,
             frames_per_buffer = self.chunk_size,
             stream_callback = stream_callback
         )
