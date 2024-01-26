@@ -1,4 +1,9 @@
-from queue import Queue
+import re
+import datetime
+import queue
+import wave
+import threading
+
 import numpy as np
 
 import pyqtgraph as pg
@@ -15,6 +20,79 @@ from record_wave import (
     sampleChunkThread,
     analyzerData
 )
+
+class AudioSaver:
+    def __init__(self):
+        self.wav_handler = None
+    
+    def init(self, wav_path, n_channel, bit_depth, sample_rate):
+        self.wav_handler = wave.open(wav_path, 'wb')
+        self.wav_handler.setnchannels(n_channel)
+        self.wav_handler.setsampwidth(bit_depth//8)
+        self.wav_handler.setframerate(sample_rate)
+        self.n_channel = n_channel
+        self.frame_bytes = bit_depth//8 * n_channel
+        self.volt_scaler = 2 ** (bit_depth - 1)
+        self.np_dtype = np.dtype('int{}'.format(bit_depth))
+        self.n_frame = 0
+        self.wav_handler.setparams
+    
+    def close(self):
+        if self.wav_handler is None:
+            return
+        #self.wav_handler.setnframes(self.n_frame)  # paired with writeframesraw
+        self.wav_handler.close()
+        self.wav_handler = None
+    
+    def write(self, data):
+        if self.wav_handler is None:
+            raise RuntimeError("AudioSaver is not initialized.")
+
+        if isinstance(data, np.ndarray) and \
+            ((data.dtype == np.float32) or (data.dtype == np.float64)):
+            volt = data
+            sample = np.array(np.round(volt * self.volt_scaler),
+                              dtype = self.np_dtype, order = 'C')
+            data = sample.data   # .data or .tobytes()
+
+        # data must be a bytes-like object, len() will return number of bytes
+        self.wav_handler.writeframes(data)
+        #self.wav_handler.writeframesraw(data)    should be faster
+        self.n_frame += len(data) // self.frame_bytes
+    
+    def __del__(self):
+        self.close()
+    
+class RecorderWriteThread(threading.Thread):
+    """Output end of the recorder, usually a wav file."""
+    def __init__(self, buf_que, writer, writer_conf):
+        threading.Thread.__init__(self)
+        self.buf_que = buf_que
+        self.writer = writer
+        self.writer_conf = writer_conf
+        self._stop_event = threading.Event()
+        self.status_check_tick = 0.1  # second
+
+    def run(self):
+        self.writer.init(**self.writer_conf)
+        while not self._stop_event.is_set():
+            try:
+                s = self.buf_que.get(True, self.status_check_tick)
+            except queue.Empty:
+                s = []
+            if (len(s) == 0):
+                continue
+            self.writer.write(s)
+        self.writer.close()
+
+    def stop(self):
+        # usually called from other thread
+        self._stop_event.set()
+        # Note: make sure call the 'join()' after the stop().
+    
+    def is_running(self):
+        # might be called from other thread
+        return not self._stop_event.is_set()
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main Window for monitoring and recording the Mic/ADC signals."""
@@ -95,9 +173,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.file_path_edit = file_path_edit
         self.file_choose_btn = file_choose_btn
         self.start_mon_btn = start_mon_btn
+        self.start_rec_btn = start_rec_btn
         self.stop_rec_btn = stop_rec_btn
 
-        self.save_file_name = None
+        self.wav_save_path = None
         self.state = None
 
         file_choose_btn.clicked.connect(self.open_file_dialog)
@@ -128,9 +207,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 'format'    : 'S16_LE',
             }
         self.adc_conf = adc_conf
+        self.bit_depth = 16       # assume always S16_LE
 
         ## setup data gernerator and analyzer
-        self.buf_queue = Queue(10000)
+        # Data flow: mic source -> buf_queue -> process{analyzer, signal to plot}
+        self.data_queue_max_size = 10000
+        self.buf_queue = queue.Queue(self.data_queue_max_size)
         self.rec_thread = recThread('recorder', self.buf_queue, adc_conf)
 
         ana_conf = {
@@ -159,6 +241,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rec_plot_prop = self.RecPlotProperties(self.analyzer_data)
         self.rec_plot_prop.config_plots(self)
 
+        # for saving to WAV
+        # Data flow: process{} -> wav_data_queue -> wav_writer
+        self.wav_data_queue = None
+        self.wav_writer_thread = None
+
         self.rec_thread.start()
         self.chunk_process_thread.start()
 
@@ -186,29 +273,63 @@ class MainWindow(QtWidgets.QMainWindow):
                 #plot_set.d2_plot.setData(x = self.x_freq)
 
     def open_file_dialog(self):
-        self.save_file_name = QtWidgets.QFileDialog.getSaveFileName()[0]
-        self.file_path_edit.setText(self.save_file_name)
+        self.wav_save_path = QtWidgets.QFileDialog.getSaveFileName()[0]
+        self.file_path_edit.setText(self.wav_save_path)
 
     def save_rec(self):
-        self.state = self.area.saveState()
         self.stop_rec_btn.setEnabled(True)
+        self.start_rec_btn.setEnabled(False)
+        # Ensure we have a file name anyway
+        if (self.wav_save_path is None) or (self.wav_save_path == ''):
+            # set file name by date and time
+            now = datetime.datetime.now()
+            self.wav_save_path = now.strftime("untitled_%Y-%m-%d_%H:%M:%S.wav")
+            self.file_path_edit.setText(self.wav_save_path)
+        # For setup the wav writer
+        wav_saver_conf = {
+            'wav_path': self.wav_save_path,
+            'n_channel': self.adc_conf['n_channels'],     # TODO: s or no s
+            'bit_depth': self.bit_depth,
+            'sample_rate': self.adc_conf['sample_rate']
+        }
+        self.wav_data_queue = queue.Queue(self.data_queue_max_size)  # Get a new queue anyway, TODO: avoid memory leak
+        self.wav_writer_thread = RecorderWriteThread(
+            self.wav_data_queue, AudioSaver(), wav_saver_conf)
+        self.wav_writer_thread.start()
     
     def stop_rec(self):
-        self.area.restoreState(self.state)
+        self.start_rec_btn.setEnabled(True)
+        self.stop_rec_btn.setEnabled(False)
+        self.wav_writer_thread.stop()
+        self.wav_writer_thread.join()
+        # pop up a message box saying the file is saved
+        msg = QtWidgets.QMessageBox()
+        msg.setIcon(QtWidgets.QMessageBox.Information)
+        msg.setText(f"The recording is saved to {self.wav_save_path}.")
+        msg.setWindowTitle("Recording saved")
+        msg.setStandardButtons(QtWidgets.QMessageBox.Ok)
+        msg.exec_()
     
     def func_proc_update(self, data_chunk):
-        # usually called from data processing thread
+        ## usually called from data processing thread
+        # if we are ready to write data
+        if self.wav_writer_thread is not None and\
+              self.wav_writer_thread.is_running():
+            self.wav_data_queue.put(data_chunk)   # TODO: should we copy the data?
+        # analysing
         self.analyzer_data.put(data_chunk)
         fqs = self.analyzer_data.fqs
         rms_db = self.analyzer_data.get_RMS_dB()
         volt = self.analyzer_data.get_volt()
         spectrum_db = self.analyzer_data.get_spectrum_dB()
+        # plot
         self.signal_plot_data.emit((rms_db, volt, fqs, spectrum_db))
     
     # TODO: add decorator for callbacks
     def update_graph(self, obj):
-        rms_db, volt, fqs, spectrum_db = obj
         # usually called from main thread
+        rms_db, volt, fqs, spectrum_db = obj
+        # ploting
         self.d1_plot.setData(volt)
         self.d2_plot.setData(x = fqs, y = spectrum_db)
         self.w3_img.setImage(np.random.normal(size=(100,100)))
