@@ -6,6 +6,9 @@ import threading
 
 import numpy as np
 
+import PyQt6
+import PyQt6.QtWidgets
+
 import pyqtgraph as pg
 #from pyqtgraph.console import ConsoleWidget
 from pyqtgraph.dockarea.Dock import Dock
@@ -71,10 +74,17 @@ class RecorderWriteThread(threading.Thread):
         self.writer = writer
         self.writer_conf = writer_conf
         self._stop_event = threading.Event()
+        self._initilized = threading.Event()
         self.status_check_tick = 0.1  # second
 
     def run(self):
-        self.writer.init(**self.writer_conf)
+        try:
+            self.writer.init(**self.writer_conf)
+        except OSError:
+            self.stop()
+            self._initilized.set()
+            return
+        self._initilized.set()
         while not self._stop_event.is_set():
             try:
                 s = self.buf_que.get(True, self.status_check_tick)
@@ -283,7 +293,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if (self.wav_save_path is None) or (self.wav_save_path == ''):
             # set file name by date and time
             now = datetime.datetime.now()
-            self.wav_save_path = now.strftime("untitled_%Y-%m-%d_%H:%M:%S.wav")
+            self.wav_save_path = now.strftime("untitled_%Y-%m-%d_%H%M%S.wav")
             self.file_path_edit.setText(self.wav_save_path)
         # For setup the wav writer
         wav_saver_conf = {
@@ -296,6 +306,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.wav_writer_thread = RecorderWriteThread(
             self.wav_data_queue, AudioSaver(), wav_saver_conf)
         self.wav_writer_thread.start()
+        print('waiting recorder to start...', end='')
+        self.wav_writer_thread._initilized.wait()
+        print('Done.')
+        if not self.wav_writer_thread.is_running():
+            self.start_rec_btn.setEnabled(True)
+            self.stop_rec_btn.setEnabled(False)
+            self.simple_message_box(f"Failed to open file {self.wav_save_path}.")
     
     def stop_rec(self):
         self.start_rec_btn.setEnabled(True)
@@ -303,12 +320,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.wav_writer_thread.stop()
         self.wav_writer_thread.join()
         # pop up a message box saying the file is saved
+        self.simple_message_box(f"The recording is saved to {self.wav_save_path}.")
+    
+    def simple_message_box(self, msg_text):
         msg = QtWidgets.QMessageBox()
-        msg.setIcon(QtWidgets.QMessageBox.Information)
-        msg.setText(f"The recording is saved to {self.wav_save_path}.")
+        #msg.setIcon(QtWidgets.QMessageBox.information)
+        msg.setText(msg_text)
         msg.setWindowTitle("Recording saved")
-        msg.setStandardButtons(QtWidgets.QMessageBox.Ok)
-        msg.exec_()
+        msg.setStandardButtons(PyQt6.QtWidgets.QMessageBox.StandardButton.Ok)
+        msg.exec()
     
     def func_proc_update(self, data_chunk):
         ## usually called from data processing thread
