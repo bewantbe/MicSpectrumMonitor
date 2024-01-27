@@ -32,6 +32,7 @@ Roadmap:
   - done
 * write spectrogram show (1 channel then n-cahnnels)
   - done
+* refactor spectrogram show to make it independent
 * Add time-frequency axis to the spectrogram
 * apply analysis to multi-cahnnels
 * User interaction design
@@ -39,6 +40,7 @@ Roadmap:
   - monitoring
   - select channels
 * Test AD7606C
+* Add limit to FPS.
 """
 
 class AudioSaver:
@@ -125,7 +127,6 @@ class RecPlotProperties:
     """A namespace (structure) like class"""
     def __init__(self, analyzer, sz_hop):
         self.log_mode = False
-        self.spam_bmp_t_duration_set = 6.0  # sec
         self.update_by_analyzer(analyzer, sz_hop)
 
     def update_by_analyzer(self, analyzer, sz_hop):
@@ -135,16 +136,6 @@ class RecPlotProperties:
         self.max_freq = analyzer.fqs[-1]
         self.x_freq = analyzer.fqs
         self.n_freq = len(self.x_freq)
-        # for spectrogram
-        t_hop = sz_hop / analyzer.sample_rate
-        self.spam_len = int(self.spam_bmp_t_duration_set / t_hop)
-        self.spam_bmp_t_duration = self.spam_len * t_hop    # correct the duration
-        self.spam_loop_cursor = 0
-        if self.log_mode:
-            self.spam_bmp = np.zeros((self.spam_len, self.n_freq))   # TODO: fix this according to the zooming
-        else:
-            self.spam_bmp = np.zeros((self.spam_len, self.n_freq))
-        self.spam_lock = threading.Lock()
 
     @property
     def spectrum_plot_range(self):
@@ -157,8 +148,41 @@ class RecPlotProperties:
         else:
             plot_set.widg2.setRange(self.spectrum_plot_range)
             #plot_set.d2_plot.setData(x = self.x_freq)
+
+class SpectrogramPlot:
+    def __init__(self):
+        self.log_mode = False
+        self.spam_bmp_t_duration_set = 6.0  # sec
+
+    def init_to_widget(self):
+        # called in main thread init
+        widg3 = pg.GraphicsView()
+        vb3 = pg.ViewBox()
+        widg3.setCentralItem(vb3)
+        w3_img = pg.ImageItem()
+        w3_img.setImage(np.random.normal(size=(100,100)))
+        vb3.addItem(w3_img)
+        self.widg3 = widg3
+        self.w3_img = w3_img
+        # TODO: add color bar
+        return widg3  # for add to dock: dock3.addWidget(widg3)
+    
+    def init_param(self, analyzer, sz_hop):
+        t_hop = sz_hop / analyzer.sample_rate
+        self.max_freq = analyzer.fqs[-1]
+        self.x_freq = analyzer.fqs
+        self.n_freq = len(self.x_freq)
+        self.spam_len = int(self.spam_bmp_t_duration_set / t_hop)
+        self.spam_bmp_t_duration = self.spam_len * t_hop    # correct the duration
+        self.spam_loop_cursor = 0
+        if self.log_mode:
+            self.spam_bmp = np.zeros((self.spam_len, self.n_freq))   # TODO: fix this according to the zooming
+        else:
+            self.spam_bmp = np.zeros((self.spam_len, self.n_freq))
+        self.spam_lock = threading.Lock()
     
     def feed_spectrum(self, spectrum):
+        # separate computation (here) and plot (in update())
         with self.spam_lock:
             self.spam_bmp[self.spam_loop_cursor,:] = spectrum
             self.spam_loop_cursor = (self.spam_loop_cursor + 1) % self.spam_len
@@ -169,6 +193,11 @@ class RecPlotProperties:
             return self.spam_bmp  # TODO: redraw the bmp according to zoom
         else:
             return self.spam_bmp
+
+    def update(self):
+        with self.spam_lock:
+            spam_bmp = self.get_spectrogram_bmp()
+            self.w3_img.setImage(self.spam_bmp)
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main Window for monitoring and recording the Mic/ADC signals."""
@@ -218,16 +247,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.d2_plot = d2_plot
 
         ## Dock 3
-        # TODO: add color bar
-        widg3 = pg.GraphicsView()
-        vb3 = pg.ViewBox()
-        widg3.setCentralItem(vb3)
-        w3_img = pg.ImageItem()
-        w3_img.setImage(np.random.normal(size=(100,100)))
-        vb3.addItem(w3_img)
-        dock3.addWidget(widg3)
-        self.widg3 = widg3
-        self.w3_img = w3_img
+        self.spam_plot = SpectrogramPlot()
+        dock3.addWidget(self.spam_plot.init_to_widget())
 
         ## Dock 4
         widg4 = pg.LayoutWidget()
@@ -322,6 +343,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.rec_plot_prop = RecPlotProperties(self.analyzer_data, sz_hop)
         self.rec_plot_prop.config_plots(self)
+        self.spam_plot.init_param(self.analyzer_data, sz_hop)
 
         # for saving to WAV
         # Data flow: process{} -> wav_data_queue -> wav_writer
@@ -396,7 +418,7 @@ class MainWindow(QtWidgets.QMainWindow):
         rms_db = self.analyzer_data.get_RMS_dB()
         volt = self.analyzer_data.get_volt()
         spectrum_db = self.analyzer_data.get_spectrum_dB()
-        self.rec_plot_prop.feed_spectrum(spectrum_db)
+        self.spam_plot.feed_spectrum(spectrum_db)
         # plot
         self.signal_plot_data.emit((rms_db, volt, fqs, spectrum_db))
     
@@ -407,9 +429,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # ploting
         self.d1_plot.setData(volt)
         self.d2_plot.setData(x = fqs, y = spectrum_db)
-        with self.rec_plot_prop.spam_lock:
-            spam_bmp = self.rec_plot_prop.get_spectrogram_bmp()
-            self.w3_img.setImage(spam_bmp)
+        self.spam_plot.update()
     
     def custom_close_event(self, event):
         self.rec_thread.b_run = False
