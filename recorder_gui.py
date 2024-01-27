@@ -39,10 +39,11 @@ Roadmap:
 * make waveform plot independent
   - done
 * Add time-frequency axis to the spectrogram
+* link frequency axis of spectrum and spectrogram
 * apply analysis to multi-cahnnels
 * User interaction design
   - start/stop recording
-  - monitoring
+  - monitoring/stop
   - select channels
 * Test AD7606C
 * Add limit to FPS.
@@ -145,7 +146,7 @@ class WaveformPlot:
         self.sz_chunk = analyzer.sz_chunk
         self.sz_hop = sz_hop              # overlap = sz_chunk - sz_hop
 
-    def config_plots(self):
+    def config_plot(self):
         if not self.auto_range:
             self.widg1.setRange(self.waveform_plot_range)
 
@@ -176,7 +177,7 @@ class SpectrumPlot:
         self.x_freq = analyzer.fqs
         self.n_freq = len(self.x_freq)
 
-    def config_plots(self):
+    def config_plot(self):
         if self.log_mode:
             pass
         else:
@@ -202,14 +203,14 @@ class SpectrogramPlot:
 
     def init_to_widget(self):
         # called in main thread init
-        widg3 = pg.GraphicsView()
-        vb3 = pg.ViewBox()
-        widg3.setCentralItem(vb3)
+        widg3 = pg.GraphicsLayoutWidget()  # use GraphicsLayoutWidget instead of GraphicsView
+        plot_item = widg3.addPlot()
         w3_img = pg.ImageItem()
         w3_img.setImage(np.random.normal(size=(100,100)))
-        vb3.addItem(w3_img)
+        plot_item.addItem(w3_img)
         self.widg3 = widg3
         self.w3_img = w3_img
+        self.plot_item = plot_item
         # TODO: add color bar
         return widg3  # for add to dock: dock3.addWidget(widg3)
     
@@ -227,8 +228,17 @@ class SpectrogramPlot:
             self.spam_bmp = np.zeros((self.spam_len, self.n_freq))
         self.spam_lock = threading.Lock()
     
+    def config_plot(self):
+        if self.log_mode:
+            pass
+        else:
+            self.plot_item.setLabels(left='Hz', bottom='second')
+            #self.plot_item.setRange(xRange=[0, self.spam_bmp_t_duration], yRange=[0, self.max_freq])
+            #x_axis = self.plot_item.getAxis('bottom')
+            #y_axis = self.plot_item.getAxis('left')
+    
     def feed_spectrum(self, spectrum):
-        # separate computation (here) and plot (in update())
+        # separate computation (here) and plot (in update()) in different threads
         with self.spam_lock:
             self.spam_bmp[self.spam_loop_cursor,:] = spectrum
             self.spam_loop_cursor = (self.spam_loop_cursor + 1) % self.spam_len
@@ -241,9 +251,10 @@ class SpectrogramPlot:
             return self.spam_bmp
 
     def update(self):
-        with self.spam_lock:
-            spam_bmp = self.get_spectrogram_bmp()
-            self.w3_img.setImage(self.spam_bmp)
+        spam_bmp = self.get_spectrogram_bmp()
+        with self.spam_lock:                   # TODO: maybe I don't need this lock
+            self.w3_img.setImage(spam_bmp,
+                rect=[0, 0, self.spam_bmp_t_duration, self.max_freq])
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main Window for monitoring and recording the Mic/ADC signals."""
@@ -380,10 +391,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.closeEvent = self.custom_close_event
 
         self.waveform_plot.init_param(self.analyzer_data, sz_hop)
-        self.waveform_plot.config_plots()
+        self.waveform_plot.config_plot()
         self.spectrum_plot.init_param(self.analyzer_data, sz_hop)
-        self.spectrum_plot.config_plots()
+        self.spectrum_plot.config_plot()
         self.spectrogram_plot.init_param(self.analyzer_data, sz_hop)
+        self.spectrogram_plot.config_plot()
 
         # for saving to WAV
         # Data flow: process{} -> wav_data_queue -> wav_writer
