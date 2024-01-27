@@ -434,7 +434,7 @@ def process_func(analyzer_data, condition_variable, chunk):
 
 class sampleChunkThread(threading.Thread):
     """ data dispatch thread """
-    def __init__(self, name, func_process, buf_que, channel_select, sz_chunk, sz_hop=0):
+    def __init__(self, name, func_process, buf_que, channel_select, sz_chunk, sz_hop=0, callback_raw=None):
         """
         Param:
             func_process: is the function to process data
@@ -454,6 +454,7 @@ class sampleChunkThread(threading.Thread):
         self.sz_chunk = sz_chunk
         self.sz_hop = sz_hop if sz_hop > 0 else sz_chunk
         self.b_run = False
+        self.callback_raw = callback_raw
 
     def run(self):
         """Continuousely poll data from the queue"""
@@ -471,6 +472,8 @@ class sampleChunkThread(threading.Thread):
                 continue
             if len(s.shape) == 2:
                 s = s[:, self.channel_select]
+            if self.callback_raw is not None:
+                self.callback_raw(s)
             if chunk_feed is None:
                 if len(s.shape) == 2:
                     chunk_feed = np.zeros((sz_chunk, s.shape[1]))

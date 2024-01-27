@@ -32,6 +32,9 @@ Roadmap:
 * apply analysis to multi-cahnnels
 * write spectrogram show (1 channel then n-cahnnels)
 * User interaction design
+  - start/stop recording
+  - monitoring
+  - select channels
 
 """
 
@@ -235,6 +238,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.data_queue_max_size = 10000
         self.buf_queue = queue.Queue(self.data_queue_max_size)
         self.rec_thread = recThread('recorder', self.buf_queue, adc_conf)
+        # TODO: allow recThread to accept multiple queues (like pipelines) for multiple downstreams
+        #       plan two: in sampleChunkThread, we setup another callback for receiving raw data
 
         ana_conf = {
             'size_chunk': 1024,
@@ -253,7 +258,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.chunk_process_thread = sampleChunkThread('chunking',
             self.func_proc_update, self.buf_queue, self.channel_selected,
             sz_chunk = ana_conf['size_chunk'],
-            sz_hop = ana_conf['size_chunk']//2)
+            sz_hop = ana_conf['size_chunk']//2,
+            callback_raw = self.proc_raw_data)
         
         # deal with the signals for plot
         self.signal_plot_data.connect(self.update_graph, pg.QtCore.Qt.ConnectionType.QueuedConnection)
@@ -344,12 +350,16 @@ class MainWindow(QtWidgets.QMainWindow):
         msg.setStandardButtons(PyQt6.QtWidgets.QMessageBox.StandardButton.Ok)
         msg.exec()
     
-    def func_proc_update(self, data_chunk):
+    def proc_raw_data(self, data_chunk):
         ## usually called from data processing thread
-        # if we are ready to write data
+        # if we are ready to write data, then do it (but
+        # do not cost too much CPU/IO time, let the other thread to do the actual work)
         if self.wav_writer_thread is not None and\
               self.wav_writer_thread.is_running():
             self.wav_data_queue.put(data_chunk)   # TODO: should we copy the data?
+
+    def func_proc_update(self, data_chunk):
+        ## usually called from data processing thread
         # analysing
         self.analyzer_data.put(data_chunk[:,1])
         fqs = self.analyzer_data.fqs
