@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+
+# Usage:
+#   python3 recorder_gui.py
+
+# Contact: xyy <bewantbe@gmail.com>
+# Github: https://github.com/bewantbe/MicSpectrumMonitor
+
 import re
 import datetime
 import queue
@@ -39,6 +47,9 @@ Roadmap:
 * make waveform plot independent
   - done
 * Add time-frequency axis to the spectrogram
+  - done.
+* Add button to save the window as a png file
+  - done.
 * link frequency axis of spectrum and spectrogram
 * apply analysis to multi-cahnnels
 * User interaction design
@@ -47,6 +58,8 @@ Roadmap:
   - select channels
 * Test AD7606C
 * Add limit to FPS.
+* Show the recording time we saved.
+* Show possible recording time left.
 """
 
 class AudioSaver:
@@ -305,19 +318,22 @@ class MainWindow(QtWidgets.QMainWindow):
         file_path_edit = QtWidgets.QLineEdit("", placeholderText="File path for saving the recording")
         file_choose_btn = QtWidgets.QPushButton('Browse')
         start_mon_btn = QtWidgets.QPushButton('Monitoring')
+        win_screenshot_btn = QtWidgets.QPushButton('Window-shot')
         start_rec_btn = QtWidgets.QPushButton('Start recording')
         stop_rec_btn  = QtWidgets.QPushButton('Stop recording')
         stop_rec_btn.setEnabled(False)
         widg4.addWidget(label, row=0, col=0)
-        widg4.addWidget(file_path_edit, row=1, col=0)
-        widg4.addWidget(file_choose_btn, row=1, col=1)
+        widg4.addWidget(file_path_edit, row=1, col=0, colspan=2)
+        widg4.addWidget(file_choose_btn, row=1, col=2)
         widg4.addWidget(start_mon_btn, row=2, col=0)
-        widg4.addWidget(start_rec_btn, row=2, col=1)
-        widg4.addWidget(stop_rec_btn, row=2, col=2)
+        widg4.addWidget(win_screenshot_btn, row=2, col=1)
+        widg4.addWidget(start_rec_btn, row=2, col=2)
+        widg4.addWidget(stop_rec_btn, row=2, col=3)
         dock4.addWidget(widg4)
         self.widg4 = widg4
         self.file_path_edit = file_path_edit
         self.file_choose_btn = file_choose_btn
+        self.win_screenshot_btn = win_screenshot_btn
         self.start_mon_btn = start_mon_btn
         self.start_rec_btn = start_rec_btn
         self.stop_rec_btn = stop_rec_btn
@@ -326,6 +342,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.state = None
 
         file_choose_btn.clicked.connect(self.open_file_dialog)
+        win_screenshot_btn.clicked.connect(self.take_screen_shot)
         start_rec_btn.clicked.connect(self.save_rec)
         stop_rec_btn.clicked.connect(self.stop_rec)
 
@@ -488,6 +505,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.chunk_process_thread.b_run = False
         event.accept()  # Accept the close event
 
+    def take_screen_shot(self):
+        app = pg.QtGui.QGuiApplication.instance()
+        screen = app.primaryScreen()
+        screenshot = screen.grabWindow(self.winId())
+        now = datetime.datetime.now()
+        png_path = now.strftime("winshot_%Y-%m-%d_%H%M%S.png")
+        screenshot.save(png_path, 'png')
 
 app = pg.mkQApp("DockArea Example")
 main_window = MainWindow()
