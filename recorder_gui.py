@@ -29,13 +29,16 @@ Roadmap:
 --------
 
 * Introduce and test multi-channels, monitor and recorder
-* apply analysis to multi-cahnnels
+  - done
 * write spectrogram show (1 channel then n-cahnnels)
+  - done
+* Add time-frequency axis to the spectrogram
+* apply analysis to multi-cahnnels
 * User interaction design
   - start/stop recording
   - monitoring
   - select channels
-
+* Test AD7606C
 """
 
 class AudioSaver:
@@ -45,10 +48,10 @@ class AudioSaver:
     def init(self, wav_path, n_channel, bit_depth, sample_rate):
         self.wav_handler = wave.open(wav_path, 'wb')
         self.wav_handler.setnchannels(n_channel)
-        self.wav_handler.setsampwidth(bit_depth//8)
+        self.wav_handler.setsampwidth(bit_depth // 8)
         self.wav_handler.setframerate(sample_rate)
         self.n_channel = n_channel
-        self.frame_bytes = bit_depth//8 * n_channel
+        self.frame_bytes = bit_depth // 8 * n_channel
         self.volt_scaler = 2 ** (bit_depth - 1)
         self.np_dtype = np.dtype('int{}'.format(bit_depth))
         self.n_frame = 0
@@ -117,6 +120,55 @@ class RecorderWriteThread(threading.Thread):
     def is_running(self):
         # might be called from other thread
         return not self._stop_event.is_set()
+
+class RecPlotProperties:
+    """A namespace (structure) like class"""
+    def __init__(self, analyzer, sz_hop):
+        self.log_mode = False
+        self.spam_bmp_t_duration_set = 6.0  # sec
+        self.update_by_analyzer(analyzer, sz_hop)
+
+    def update_by_analyzer(self, analyzer, sz_hop):
+        self.sz_chunk = analyzer.sz_chunk
+        self.sz_hop = sz_hop              # overlap = sz_chunk - sz_hop
+        # for spectrum
+        self.max_freq = analyzer.fqs[-1]
+        self.x_freq = analyzer.fqs
+        self.n_freq = len(self.x_freq)
+        # for spectrogram
+        t_hop = sz_hop / analyzer.sample_rate
+        self.spam_len = int(self.spam_bmp_t_duration_set / t_hop)
+        self.spam_bmp_t_duration = self.spam_len * t_hop    # correct the duration
+        self.spam_loop_cursor = 0
+        if self.log_mode:
+            self.spam_bmp = np.zeros((self.spam_len, self.n_freq))   # TODO: fix this according to the zooming
+        else:
+            self.spam_bmp = np.zeros((self.spam_len, self.n_freq))
+        self.spam_lock = threading.Lock()
+
+    @property
+    def spectrum_plot_range(self):
+        rg = QtCore.QRectF(*map(float, [0, -120, self.max_freq, 120]))
+        return rg  # x, y, width, height
+
+    def config_plots(self, plot_set):
+        if self.log_mode:
+            pass
+        else:
+            plot_set.widg2.setRange(self.spectrum_plot_range)
+            #plot_set.d2_plot.setData(x = self.x_freq)
+    
+    def feed_spectrum(self, spectrum):
+        with self.spam_lock:
+            self.spam_bmp[self.spam_loop_cursor,:] = spectrum
+            self.spam_loop_cursor = (self.spam_loop_cursor + 1) % self.spam_len
+        return self.spam_bmp
+    
+    def get_spectrogram_bmp(self):
+        if self.log_mode:
+            return self.spam_bmp  # TODO: redraw the bmp according to zoom
+        else:
+            return self.spam_bmp
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main Window for monitoring and recording the Mic/ADC signals."""
@@ -255,11 +307,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.analyzer_data.use_dBA = ana_conf['use_dBA']
 
         self.channel_selected = [0,1]  # select channel(s) by a index or vector of indexes
+        sz_chunk = ana_conf['size_chunk']
+        sz_hop = ana_conf['size_chunk'] // 2
         self.chunk_process_thread = sampleChunkThread('chunking',
-            self.func_proc_update, self.buf_queue, self.channel_selected,
-            sz_chunk = ana_conf['size_chunk'],
-            sz_hop = ana_conf['size_chunk']//2,
-            callback_raw = self.proc_raw_data)
+            self.proc_analysis_plot, self.buf_queue, self.channel_selected,
+            sz_chunk, sz_hop,
+            callback_raw = self.proc_orig_data)
         
         # deal with the signals for plot
         self.signal_plot_data.connect(self.update_graph, pg.QtCore.Qt.ConnectionType.QueuedConnection)
@@ -267,7 +320,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Connect the custom closeEvent
         self.closeEvent = self.custom_close_event
 
-        self.rec_plot_prop = self.RecPlotProperties(self.analyzer_data)
+        self.rec_plot_prop = RecPlotProperties(self.analyzer_data, sz_hop)
         self.rec_plot_prop.config_plots(self)
 
         # for saving to WAV
@@ -277,29 +330,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.rec_thread.start()
         self.chunk_process_thread.start()
-
-    class RecPlotProperties:
-        """A namespace (structure) like class"""
-        def __init__(self, analyzer):
-            self.log_mode = False
-            self.update_by_analyzer(analyzer)
-
-        def update_by_analyzer(self, analyzer):
-            self.max_freq = analyzer.fqs[-1]
-            self.n_freq = analyzer.sz_fft
-            self.x_freq = analyzer.fqs
-
-        @property
-        def spectrum_plot_range(self):
-            rg = QtCore.QRectF(*map(float, [0, -120, self.max_freq, 120]))
-            return rg  # x, y, width, height
-
-        def config_plots(self, plot_set):
-            if self.log_mode:
-                pass
-            else:
-                plot_set.widg2.setRange(self.spectrum_plot_range)
-                #plot_set.d2_plot.setData(x = self.x_freq)
 
     def open_file_dialog(self):
         self.wav_save_path = QtWidgets.QFileDialog.getSaveFileName()[0]
@@ -350,7 +380,7 @@ class MainWindow(QtWidgets.QMainWindow):
         msg.setStandardButtons(PyQt6.QtWidgets.QMessageBox.StandardButton.Ok)
         msg.exec()
     
-    def proc_raw_data(self, data_chunk):
+    def proc_orig_data(self, data_chunk):
         ## usually called from data processing thread
         # if we are ready to write data, then do it (but
         # do not cost too much CPU/IO time, let the other thread to do the actual work)
@@ -358,7 +388,7 @@ class MainWindow(QtWidgets.QMainWindow):
               self.wav_writer_thread.is_running():
             self.wav_data_queue.put(data_chunk)   # TODO: should we copy the data?
 
-    def func_proc_update(self, data_chunk):
+    def proc_analysis_plot(self, data_chunk):
         ## usually called from data processing thread
         # analysing
         self.analyzer_data.put(data_chunk[:,1])
@@ -366,6 +396,7 @@ class MainWindow(QtWidgets.QMainWindow):
         rms_db = self.analyzer_data.get_RMS_dB()
         volt = self.analyzer_data.get_volt()
         spectrum_db = self.analyzer_data.get_spectrum_dB()
+        self.rec_plot_prop.feed_spectrum(spectrum_db)
         # plot
         self.signal_plot_data.emit((rms_db, volt, fqs, spectrum_db))
     
@@ -376,7 +407,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # ploting
         self.d1_plot.setData(volt)
         self.d2_plot.setData(x = fqs, y = spectrum_db)
-        self.w3_img.setImage(np.random.normal(size=(100,100)))
+        with self.rec_plot_prop.spam_lock:
+            spam_bmp = self.rec_plot_prop.get_spectrogram_bmp()
+            self.w3_img.setImage(spam_bmp)
     
     def custom_close_event(self, event):
         self.rec_thread.b_run = False
