@@ -33,6 +33,9 @@ Roadmap:
 * write spectrogram show (1 channel then n-cahnnels)
   - done
 * refactor spectrogram show to make it independent
+  - done
+* refactor spectrum plot to make it independent
+  - done
 * Add time-frequency axis to the spectrogram
 * apply analysis to multi-cahnnels
 * User interaction design
@@ -123,31 +126,43 @@ class RecorderWriteThread(threading.Thread):
         # might be called from other thread
         return not self._stop_event.is_set()
 
-class RecPlotProperties:
-    """A namespace (structure) like class"""
-    def __init__(self, analyzer, sz_hop):
+class SpectrumPlot:
+    def __init__(self):
         self.log_mode = False
-        self.update_by_analyzer(analyzer, sz_hop)
+    
+    def init_to_widget(self):
+        #dock2.hideTitleBar()
+        widg2 = pg.PlotWidget(title="Spectrum")
+        d2_plot = widg2.plot(np.random.normal(size=100))
+        self.widg2 = widg2
+        self.d2_plot = d2_plot
+        return widg2
 
-    def update_by_analyzer(self, analyzer, sz_hop):
+    def init_param(self, analyzer, sz_hop):
         self.sz_chunk = analyzer.sz_chunk
         self.sz_hop = sz_hop              # overlap = sz_chunk - sz_hop
-        # for spectrum
         self.max_freq = analyzer.fqs[-1]
         self.x_freq = analyzer.fqs
         self.n_freq = len(self.x_freq)
+
+    def config_plots(self):
+        if self.log_mode:
+            pass
+        else:
+            self.widg2.setRange(self.spectrum_plot_range)
+            #plot_set.d2_plot.setData(x = self.x_freq)
 
     @property
     def spectrum_plot_range(self):
         rg = QtCore.QRectF(*map(float, [0, -120, self.max_freq, 120]))
         return rg  # x, y, width, height
 
-    def config_plots(self, plot_set):
+    def update(self, fqs, spectrum_db):
         if self.log_mode:
             pass
         else:
-            plot_set.widg2.setRange(self.spectrum_plot_range)
-            #plot_set.d2_plot.setData(x = self.x_freq)
+            self.d2_plot.setData(x = fqs, y = spectrum_db)
+            #self.d2_plot.setData(x = self.x_freq, y = spectrum_db)
 
 class SpectrogramPlot:
     def __init__(self):
@@ -239,16 +254,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.d1_plot = d1_plot
 
         ## Dock 2
-        #dock2.hideTitleBar()
-        widg2 = pg.PlotWidget(title="Spectrum")
-        d2_plot = widg2.plot(np.random.normal(size=100))
-        dock2.addWidget(widg2)
-        self.widg2 = widg2
-        self.d2_plot = d2_plot
+        self.spectrum_plot = SpectrumPlot()
+        dock2.addWidget(self.spectrum_plot.init_to_widget())
 
         ## Dock 3
-        self.spam_plot = SpectrogramPlot()
-        dock3.addWidget(self.spam_plot.init_to_widget())
+        self.spectrogram_plot = SpectrogramPlot()
+        dock3.addWidget(self.spectrogram_plot.init_to_widget())
 
         ## Dock 4
         widg4 = pg.LayoutWidget()
@@ -341,9 +352,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Connect the custom closeEvent
         self.closeEvent = self.custom_close_event
 
-        self.rec_plot_prop = RecPlotProperties(self.analyzer_data, sz_hop)
-        self.rec_plot_prop.config_plots(self)
-        self.spam_plot.init_param(self.analyzer_data, sz_hop)
+        self.spectrum_plot.init_param(self.analyzer_data, sz_hop)
+        self.spectrum_plot.config_plots()
+        self.spectrogram_plot.init_param(self.analyzer_data, sz_hop)
 
         # for saving to WAV
         # Data flow: process{} -> wav_data_queue -> wav_writer
@@ -418,7 +429,7 @@ class MainWindow(QtWidgets.QMainWindow):
         rms_db = self.analyzer_data.get_RMS_dB()
         volt = self.analyzer_data.get_volt()
         spectrum_db = self.analyzer_data.get_spectrum_dB()
-        self.spam_plot.feed_spectrum(spectrum_db)
+        self.spectrogram_plot.feed_spectrum(spectrum_db)
         # plot
         self.signal_plot_data.emit((rms_db, volt, fqs, spectrum_db))
     
@@ -428,8 +439,8 @@ class MainWindow(QtWidgets.QMainWindow):
         rms_db, volt, fqs, spectrum_db = obj
         # ploting
         self.d1_plot.setData(volt)
-        self.d2_plot.setData(x = fqs, y = spectrum_db)
-        self.spam_plot.update()
+        self.spectrum_plot.update(fqs, spectrum_db)
+        self.spectrogram_plot.update()
     
     def custom_close_event(self, event):
         self.rec_thread.b_run = False
