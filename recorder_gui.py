@@ -36,6 +36,8 @@ Roadmap:
   - done
 * refactor spectrum plot to make it independent
   - done
+* make waveform plot independent
+  - done
 * Add time-frequency axis to the spectrogram
 * apply analysis to multi-cahnnels
 * User interaction design
@@ -125,6 +127,35 @@ class RecorderWriteThread(threading.Thread):
     def is_running(self):
         # might be called from other thread
         return not self._stop_event.is_set()
+
+class WaveformPlot:
+    def __init__(self):
+        self.auto_range = True
+    
+    def init_to_widget(self):
+        #dock1.hideTitleBar()
+        widg1 = pg.PlotWidget(title="Waveform")
+        d1_plot = widg1.plot(np.random.normal(size=100))
+        widg1.getPlotItem().getAxis('left').setWidth(50)
+        self.widg1 = widg1
+        self.d1_plot = d1_plot
+        return widg1
+
+    def init_param(self, analyzer, sz_hop):
+        self.sz_chunk = analyzer.sz_chunk
+        self.sz_hop = sz_hop              # overlap = sz_chunk - sz_hop
+
+    def config_plots(self):
+        if not self.auto_range:
+            self.widg1.setRange(self.waveform_plot_range)
+
+    @property
+    def waveform_plot_range(self):
+        rg = QtCore.QRectF(*map(float, [0, -1.0, self.sz_chunk, 2.0]))
+        return rg  # x, y, width, height
+
+    def update(self, volt):
+        self.d1_plot.setData(volt)
 
 class SpectrumPlot:
     def __init__(self):
@@ -246,12 +277,8 @@ class MainWindow(QtWidgets.QMainWindow):
         ## Add widgets into each dock
 
         ## Dock 1
-        widg1 = pg.PlotWidget(title="Waveform")
-        d1_plot = widg1.plot(np.random.normal(size=100))
-        widg1.getPlotItem().getAxis('left').setWidth(50)
-        dock1.addWidget(widg1)
-        self.widg1 = widg1
-        self.d1_plot = d1_plot
+        self.waveform_plot = WaveformPlot()
+        dock1.addWidget(self.waveform_plot.init_to_widget())
 
         ## Dock 2
         self.spectrum_plot = SpectrumPlot()
@@ -352,6 +379,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # Connect the custom closeEvent
         self.closeEvent = self.custom_close_event
 
+        self.waveform_plot.init_param(self.analyzer_data, sz_hop)
+        self.waveform_plot.config_plots()
         self.spectrum_plot.init_param(self.analyzer_data, sz_hop)
         self.spectrum_plot.config_plots()
         self.spectrogram_plot.init_param(self.analyzer_data, sz_hop)
@@ -438,7 +467,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # usually called from main thread
         rms_db, volt, fqs, spectrum_db = obj
         # ploting
-        self.d1_plot.setData(volt)
+        self.waveform_plot.update(volt)
         self.spectrum_plot.update(fqs, spectrum_db)
         self.spectrogram_plot.update()
     
