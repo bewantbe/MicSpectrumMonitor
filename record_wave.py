@@ -539,7 +539,7 @@ if __name__ == '__main__':
             conf = {
                 'sampler_id': 'mic',
                 'device'    : 'default',
-                'n_channels': 1,
+                'n_channel': 1,
                 'sample_rate': 48000,
                 'periodsize': 1024,
                 'format'    : 'S16_LE',
@@ -548,7 +548,7 @@ if __name__ == '__main__':
             conf = {
                 'sampler_id': 'mic',
                 'device'    : 'hw:CARD=U18dB,DEV=0',
-                'n_channels': 2,
+                'n_channel': 2,
                 'sample_rate': 48000,
                 'periodsize': 1024,
                 'format'    : 'S24_LE',
@@ -563,7 +563,7 @@ if __name__ == '__main__':
             conf = {
                 'sampler_id': 'mic',
                 'device'    : 'default',
-                'n_channels': 1,
+                'n_channel': 1,
                 'sample_rate': 48000,
                 'periodsize': 1024,
                 'format'    : 'S16_LE',

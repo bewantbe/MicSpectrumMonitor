@@ -1,4 +1,4 @@
-
+import time
 import numpy as np
 import struct      # unpack the packed bytes
 import alsaaudio
@@ -8,8 +8,8 @@ class AlsaAudio(tssabc.SampleReader):
 
     sampler_id = 'alsa'
 
-    def init(self, sample_rate, chunk_size, stream_callback=None, n_channels=1, periodsize=256, format='S16_LE', device='default', **kwargs):
-        self.n_channels  = n_channels
+    def init(self, sample_rate, chunk_size, stream_callback=None, n_channel=1, periodsize=256, format='S16_LE', device='default', **kwargs):
+        self.n_channel  = n_channel
         self.sample_rate = sample_rate * 1.0  # keep float, so easier for math
         self.periodsize  = periodsize
         self.format = eval('alsaaudio.PCM_FORMAT_' + format)
@@ -17,7 +17,7 @@ class AlsaAudio(tssabc.SampleReader):
         self.sample_maxp1 = 2 ** (self.sample_bits-1)
         # initialize the device
         self.inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE, alsaaudio.PCM_NORMAL, 
-           rate = int(self.sample_rate), channels = self.n_channels,
+           rate = int(self.sample_rate), channels = self.n_channel,
            format = self.format, periodsize = self.periodsize,
            periods = 4, device = device)
 
@@ -35,7 +35,7 @@ class AlsaAudio(tssabc.SampleReader):
                 sample_d[i] = v - ((v & 0x800000) << 1)
             sample_d /= 0x1000000 * 1.0
         # separate channels
-        sample_d = sample_d.reshape((len(sample_d)//self.n_channels, self.n_channels))
+        sample_d = sample_d.reshape((len(sample_d)//self.n_channel, self.n_channel))
         return sample_d
 
     def read(self, n_frames):
@@ -43,7 +43,7 @@ class AlsaAudio(tssabc.SampleReader):
         if l < 0:
             print("recorder overrun at t = %.3f sec, some samples are lost." % (time.time()))
             return None
-        if l * self.n_channels * self.sample_bits/8 != len(data):
+        if l * self.n_channel * self.sample_bits/8 != len(data):
             raise IOError('number of channel or sample size do not match')
         if l < self.periodsize:
             print("\nread sample: %d, requested: %d" \

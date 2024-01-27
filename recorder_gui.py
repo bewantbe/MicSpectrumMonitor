@@ -50,16 +50,17 @@ Roadmap:
   - done.
 * Add button to save the window as a png file
   - done.
-* link frequency axis of spectrum and spectrogram
-* apply analysis to multi-cahnnels
+* apply analysis to multi-channels
+* Add limit to FPS. ref to the fps counter design in pyqtgraph example
+* show multi-channel waveform spectrum spectrogram
 * User interaction design
   - start/stop recording
   - monitoring/stop
   - select channels
+  - Show the recording time we saved.
+  - Show possible recording time left.
 * Test AD7606C
-* Add limit to FPS.
-* Show the recording time we saved.
-* Show possible recording time left.
+* link frequency axis of spectrum and spectrogram
 """
 
 class AudioSaver:
@@ -272,7 +273,7 @@ class SpectrogramPlot:
 class MainWindow(QtWidgets.QMainWindow):
     """Main Window for monitoring and recording the Mic/ADC signals."""
 
-    signal_plot_data = pg.QtCore.Signal(object)
+    signal_update_graph = pg.QtCore.Signal(object)
 
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
@@ -314,14 +315,35 @@ class MainWindow(QtWidgets.QMainWindow):
 
         ## Dock 4
         widg4 = pg.LayoutWidget()
+        self.widg4 = widg4
+
         label = QtWidgets.QLabel("Set the parameters for recording:")
+
         file_path_edit = QtWidgets.QLineEdit("", placeholderText="File path for saving the recording")
+        self.wav_save_path = None
+        self.file_path_edit = file_path_edit
+
         file_choose_btn = QtWidgets.QPushButton('Browse')
+        file_choose_btn.clicked.connect(self.open_file_dialog)
+        self.file_choose_btn = file_choose_btn
+
         start_mon_btn = QtWidgets.QPushButton('Monitoring')
+        self.start_mon_btn = start_mon_btn
+
         win_screenshot_btn = QtWidgets.QPushButton('Window-shot')
+        win_screenshot_btn.clicked.connect(self.take_screen_shot)
+        self.win_screenshot_btn = win_screenshot_btn
+
         start_rec_btn = QtWidgets.QPushButton('Start recording')
+        start_rec_btn.clicked.connect(self.start_audio_saving)
+        self.start_rec_btn = start_rec_btn
+
         stop_rec_btn  = QtWidgets.QPushButton('Stop recording')
+        stop_rec_btn.clicked.connect(self.stop_audio_saving)
         stop_rec_btn.setEnabled(False)
+        self.stop_rec_btn = stop_rec_btn
+
+        # layout
         widg4.addWidget(label, row=0, col=0)
         widg4.addWidget(file_path_edit, row=1, col=0, colspan=2)
         widg4.addWidget(file_choose_btn, row=1, col=2)
@@ -330,29 +352,13 @@ class MainWindow(QtWidgets.QMainWindow):
         widg4.addWidget(start_rec_btn, row=2, col=2)
         widg4.addWidget(stop_rec_btn, row=2, col=3)
         dock4.addWidget(widg4)
-        self.widg4 = widg4
-        self.file_path_edit = file_path_edit
-        self.file_choose_btn = file_choose_btn
-        self.win_screenshot_btn = win_screenshot_btn
-        self.start_mon_btn = start_mon_btn
-        self.start_rec_btn = start_rec_btn
-        self.stop_rec_btn = stop_rec_btn
 
-        self.wav_save_path = None
-        self.state = None
-
-        file_choose_btn.clicked.connect(self.open_file_dialog)
-        win_screenshot_btn.clicked.connect(self.take_screen_shot)
-        start_rec_btn.clicked.connect(self.save_rec)
-        stop_rec_btn.clicked.connect(self.stop_rec)
-
-        timer = pg.QtCore.QTimer()
-        timer.timeout.connect(self.update)
-        timer.start(50)
-        self.timer = timer
+        # Connect the custom closeEvent
+        self.closeEvent = self.custom_close_event
 
         self.show()
 
+        ## setup audio input and processings
         pcm_device = 'mic'
         if pcm_device == 'ad7606c':
             adc_conf = {
@@ -365,7 +371,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 'sampler_id'   : 'mic',
                 'device'       : 'default',
                 'sample_rate'  : 48000,
-                'n_channels'   : 2,
+                'n_channel'   : 2,
                 'value_format' : 'S16_LE',
                 'periodsize'   : 1024,
             }
@@ -392,6 +398,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.analyzer_data = analyzerData(
             ana_conf['size_chunk'], adc_conf['sample_rate'], ana_conf['n_ave'])
         self.analyzer_data.use_dBA = ana_conf['use_dBA']
+        
+        # signals for calling self.proc_analysis_plot
+        self.signal_update_graph.connect(self.update_graph, pg.QtCore.Qt.ConnectionType.QueuedConnection)
 
         self.channel_selected = [0,1]  # select channel(s) by a index or vector of indexes
         sz_chunk = ana_conf['size_chunk']
@@ -400,13 +409,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.proc_analysis_plot, self.buf_queue, self.channel_selected,
             sz_chunk, sz_hop,
             callback_raw = self.proc_orig_data)
-        
-        # deal with the signals for plot
-        self.signal_plot_data.connect(self.update_graph, pg.QtCore.Qt.ConnectionType.QueuedConnection)
 
-        # Connect the custom closeEvent
-        self.closeEvent = self.custom_close_event
-
+        ## setup plots
         self.waveform_plot.init_param(self.analyzer_data, sz_hop)
         self.waveform_plot.config_plot()
         self.spectrum_plot.init_param(self.analyzer_data, sz_hop)
@@ -414,7 +418,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.spectrogram_plot.init_param(self.analyzer_data, sz_hop)
         self.spectrogram_plot.config_plot()
 
-        # for saving to WAV
+        ## for audio saving thread
         # Data flow: process{} -> wav_data_queue -> wav_writer
         self.wav_data_queue = None
         self.wav_writer_thread = None
@@ -426,7 +430,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.wav_save_path = QtWidgets.QFileDialog.getSaveFileName()[0]
         self.file_path_edit.setText(self.wav_save_path)
 
-    def save_rec(self):
+    def start_audio_saving(self):
         self.stop_rec_btn.setEnabled(True)
         self.start_rec_btn.setEnabled(False)
         # Ensure we have a file name anyway
@@ -438,7 +442,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # For setup the wav writer
         wav_saver_conf = {
             'wav_path': self.wav_save_path,
-            'n_channel': self.adc_conf['n_channels'],     # TODO: s or no s
+            'n_channel': self.adc_conf['n_channel'],
             'bit_depth': self.bit_depth,
             'sample_rate': self.adc_conf['sample_rate']
         }
@@ -455,7 +459,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.stop_rec_btn.setEnabled(False)
             self.simple_message_box(f"Failed to open file {self.wav_save_path}.")
     
-    def stop_rec(self):
+    def stop_audio_saving(self):
         self.start_rec_btn.setEnabled(True)
         self.stop_rec_btn.setEnabled(False)
         self.wav_writer_thread.stop()
@@ -489,7 +493,7 @@ class MainWindow(QtWidgets.QMainWindow):
         spectrum_db = self.analyzer_data.get_spectrum_dB()
         self.spectrogram_plot.feed_spectrum(spectrum_db)
         # plot
-        self.signal_plot_data.emit((rms_db, volt, fqs, spectrum_db))
+        self.signal_update_graph.emit((rms_db, volt, fqs, spectrum_db))
     
     # TODO: annotate callbacks using decorator
     def update_graph(self, obj):
@@ -513,8 +517,7 @@ class MainWindow(QtWidgets.QMainWindow):
         png_path = now.strftime("winshot_%Y-%m-%d_%H%M%S.png")
         screenshot.save(png_path, 'png')
 
-app = pg.mkQApp("DockArea Example")
-main_window = MainWindow()
-
 if __name__ == '__main__':
+    app = pg.mkQApp("DockArea Example")
+    main_window = MainWindow()
     pg.exec()

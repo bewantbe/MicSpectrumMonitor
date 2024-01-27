@@ -14,7 +14,7 @@ class MicReader(tssabc.SampleReader):
     def __init__(self):
         self.initilized = False
 
-    def init(self, device, sample_rate, n_channels, value_format, periodsize, stream_callback=None):
+    def init(self, device, sample_rate, n_channel, value_format, periodsize, stream_callback=None):
         # value_format: S16_LE, int16
         # device: device index
         # Ref. https://people.csail.mit.edu/hubert/pyaudio/docs/
@@ -22,12 +22,12 @@ class MicReader(tssabc.SampleReader):
         self.sample_rate = sample_rate
         self.chunk_size = periodsize   # TODO: are they the same
         self.dtype = value_format      # TODO: not really used yet
-        self.n_channels = n_channels
+        self.n_channel = n_channel
         if device == 'default':
             device = None
         self.stream = self.pya.open(
             rate = self.sample_rate,
-            channels = self.n_channels,
+            channels = self.n_channel,
             format = pyaudio.paInt16,
             input = True,
             input_device_index = device,
@@ -39,7 +39,7 @@ class MicReader(tssabc.SampleReader):
         return self
 
     def read(self, n_frames):
-        # return formatted data: (n_frames, n_channels)
+        # return formatted data: (n_frames, n_channel)
         if n_frames == None:
             n_frames = self.chunk_size
         data = self.stream.read(n_frames)
@@ -47,7 +47,7 @@ class MicReader(tssabc.SampleReader):
         # TODO: or try numpy.frombuffer
         sample_d = np.array(vals) / 32768.0
         # separate channels
-        sample_d = sample_d.reshape((len(sample_d)//self.n_channels, self.n_channels))
+        sample_d = sample_d.reshape((len(sample_d)//self.n_channel, self.n_channel))
         return sample_d
 
     def close(self):
