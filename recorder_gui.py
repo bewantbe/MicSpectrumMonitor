@@ -6,7 +6,6 @@
 # Contact: xyy <bewantbe@gmail.com>
 # Github: https://github.com/bewantbe/MicSpectrumMonitor
 
-import re
 import datetime
 import queue
 import wave
@@ -57,19 +56,23 @@ Roadmap:
     + done waveform
     + done spectrum
     + done RMS
-* Add show FPS.
-  - done.
-* Reduce plot margin.
-* Add limit to FPS. ref to the fps counter design in pyqtgraph example
-* Allow Log freq axis mode.
-* show multi-channel waveform spectrum spectrogram
+    + spectrogram -- cancelled
 * Add RMS curve plot.
-* User interaction design
+  - done
+* Reduce plot margin.
+  - done
+* Add limit to FPS.
+  - done.
+* Allow Log freq axis mode.
+  - done spectrum plot.
+  - padding: spectrogram plot.
+* Better user interaction design
   - start/stop recording
   - monitoring/stop
   - select channels
   - Show the recording time we saved.
   - Show possible recording time left.
+* Add show FPS, ref to the fps counter design in pyqtgraph example
 * Test AD7606C
 * link frequency axis of spectrum and spectrogram
 * consider support RF64 format for wav file, e.g.
