@@ -32,6 +32,8 @@ from record_wave import (
     FPSLimiter
 )
 
+from control_pannel import Ui_Dock4  # TODO: change "from PyQt6" to "from pyqtgraph.Qt"
+
 """
 Roadmap:
 --------
@@ -422,7 +424,7 @@ class MainWindow(QtWidgets.QMainWindow):
         dock2 = Dock("Spectrum", size=(500, 300), closable=True)
         dock3 = Dock("Spectrogram", size=(500,400))
         dock5 = Dock("RMS", size=(500,200))
-        dock4 = Dock("Control Pannel", size=(500,200))
+        dock4 = Dock("Control Pannel", size=(500,250))
         area.addDock(dock1, 'left')
         area.addDock(dock2, 'bottom', dock1)
         area.addDock(dock4, 'bottom', dock2)
@@ -454,6 +456,13 @@ class MainWindow(QtWidgets.QMainWindow):
         dock5.addWidget(self.rms_plot.init_to_widget())
 
         ## Dock 4
+        # See also: https://build-system.fman.io/qt-designer-download
+        # pyuic6 control_pannel.ui -o control_pannel.py
+        # python -m PyQt6.uic.pyuic -o output.py -x input.ui
+        ui_dock4 = Ui_Dock4()
+        ui_dock4.setupUi(self.dock4)
+
+        """
         widg4 = pg.LayoutWidget()
         self.widg4 = widg4
 
@@ -492,6 +501,7 @@ class MainWindow(QtWidgets.QMainWindow):
         widg4.addWidget(start_rec_btn, row=2, col=2)
         widg4.addWidget(stop_rec_btn, row=2, col=3)
         dock4.addWidget(widg4)
+        """
 
         # Connect the custom closeEvent
         self.closeEvent = self.custom_close_event
