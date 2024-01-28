@@ -29,7 +29,8 @@ from pyqtgraph.Qt import (
 from record_wave import (
     recThread,
     sampleChunkThread,
-    analyzerData
+    analyzerData,
+    FPSLimiter
 )
 
 """
@@ -55,7 +56,10 @@ Roadmap:
   - extend plots
     + done waveform
     + done spectrum
+    + done RMS
 * Add show FPS.
+  - done.
+* Reduce plot margin.
 * Add limit to FPS. ref to the fps counter design in pyqtgraph example
 * Allow Log freq axis mode.
 * show multi-channel waveform spectrum spectrogram
@@ -282,9 +286,9 @@ class RMSPlot:
 
     def init_to_widget(self):
         #dock2.hideTitleBar()
-        plot_widget = pg.PlotWidget(title="RMS")
+        plot_widget = pg.PlotWidget()
         plot_item = plot_widget.plot(
-            -100 * np.ones(100),
+            -90 * np.ones(100),
             name = 'ch1')
         self.plot_widget = plot_widget
         self.plot_items = [plot_item]
@@ -296,14 +300,14 @@ class RMSPlot:
         self.t_duration = self.rms_len * t_hop    # correct the duration
         self.loop_cursor = 0
         self.n_channel = analyzer.n_channel
-        self.arr_rms_db = -100 * np.ones((self.rms_len, self.n_channel))
+        self.arr_rms_db = -90 * np.ones((self.rms_len, self.n_channel))
         self.arr_t = np.arange(self.rms_len) * t_hop
         # set plot color
         self.lut = GetColorMapLut(self.n_channel)
         self.plot_items[0].setPen(self.lut[0])
         for i in range(1, self.n_channel):
             pl = self.plot_widget.plot(
-                -100 * np.ones(100),
+                -90 * np.ones(100),
                 pen = self.lut[i],
                 name = f'ch{i+1}')
             self.plot_items.append(pl)
@@ -526,6 +530,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # signals for calling self.proc_analysis_plot
         self.signal_update_graph.connect(self.update_graph, pg.QtCore.Qt.ConnectionType.QueuedConnection)
+        self.fps_lim = FPSLimiter(30)
 
         sz_chunk = ana_conf['size_chunk']
         sz_hop = ana_conf['size_chunk'] // 2
@@ -623,6 +628,8 @@ class MainWindow(QtWidgets.QMainWindow):
     
     # TODO: annotate callbacks using decorator
     def update_graph(self, obj):
+        if not self.fps_lim.checkFPSAllow():
+            return
         # usually called from main thread
         rms_db, volt, fqs, spectrum_db = obj
         # ploting
