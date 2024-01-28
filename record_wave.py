@@ -8,10 +8,9 @@ import queue
 import threading
 
 import numpy as np
-from numpy import log10
-from numpy import sqrt
-from numpy import sum
-
+from numpy import (
+    log10, sqrt, sum
+)
 # https://larsimmisch.github.io/pyalsaaudio/
 from tssampler import get_sampler
 from tssampler.ideal_source import WhiteSource
@@ -73,17 +72,18 @@ class recThread(threading.Thread):
 # Analyze data
 class analyzerData():
     """ Data analyzer """
-    def __init__(self, sz_chunk, sample_rate, ave_num = 1, RMS_normalize_to_sine = False):
+    def __init__(self, sz_chunk, sample_rate, ave_num = 1, n_channel = 1, RMS_normalize_to_sine = False):
         self.sample_rate = sample_rate
         self.sz_chunk = sz_chunk     # data size for one FFT
         self.sz_fft   = sz_chunk     # FFT frequency points
         self.update_RMS_normalize_to_sine(RMS_normalize_to_sine)
         self.rms = 0
-        self.v = np.zeros(sz_chunk)
+        self.v = np.zeros((sz_chunk, n_channel))
+        self.n_channel = n_channel
         # hold spectrums, no negative frequency
-        self.sp_cumulate = np.zeros((self.sz_fft + 2) // 2)
-        self.sp_vo = np.zeros((self.sz_fft + 2) // 2)
-        self.sp_db = np.ones((self.sz_fft + 2) // 2) * float('-inf')
+        self.sp_cumulate = np.zeros(((self.sz_fft + 2) // 2, n_channel))
+        self.sp_vo = np.zeros(((self.sz_fft + 2) // 2, n_channel))
+        self.sp_db = np.ones(((self.sz_fft + 2) // 2, n_channel)) * float('-inf')
         self.sp_cnt = 0
         self.ave_num = ave_num       # number of averages to get one spectrum
         self.lock_data = threading.Lock()
@@ -92,6 +92,7 @@ class analyzerData():
 #        self.wnd = np.ones(sz_chunk)
         self.wnd *= len(self.wnd) / sum(self.wnd)
         self.wnd_factor = self.RMS_sine_factor * 2.0 / sum(self.wnd) ** 2
+        self.wnd = self.wnd.reshape(-1, 1)
         # factor for dBA
         sqr = lambda x: x*x
         fqs = 1.0 * np.arange(len(self.sp_vo)) / self.sz_fft * self.sample_rate
@@ -164,21 +165,24 @@ class analyzerData():
         print('Using calibration file "%s": %d entries' % (fname, len(calib_orig[0])))
 
     def put(self, data):
-        if len(self.v) != len(data): return
+        if len(self.v) != len(data):
+            raise ValueError('Data size mismatch.')
         # volt trace
         self.lock_data.acquire()
-        self.v[:] = 1.0 * data[:]    # save a copy, minize lock time
+        self.v[:] = data.reshape(-1, self.n_channel)    # save a copy, minize lock time
         self.lock_data.release()
         
         # spectrum
-        tmp_amp = np.fft.rfft(self.v * self.wnd, self.sz_fft)
+        tmp_amp = np.fft.rfft(self.v * self.wnd, self.sz_fft, axis=0)
         tmp_pow = (tmp_amp * tmp_amp.conj()).real * self.wnd_factor
         if len(self.calib_db) > 0:
             tmp_pow /= self.calib_pow
         if self.sz_fft % 2 == 0:
-            tmp_pow = np.concatenate([[tmp_pow[0]/2], tmp_pow[1:-1], [tmp_pow[-1]/2]])
+            tmp_pow = np.concatenate((
+                [tmp_pow[0, :]/2], tmp_pow[1:-1, :], [tmp_pow[-1, :]/2]))
         else:
-            tmp_pow = np.concatenate([[tmp_pow[0]/2], tmp_pow[1:]])
+            tmp_pow = np.concatenate((
+                [tmp_pow[0, :]/2], tmp_pow[1:, :]))
         self.sp_cumulate += tmp_pow
         self.sp_cnt += 1
         if self.sp_cnt >= self.ave_num:
@@ -193,7 +197,7 @@ class analyzerData():
             self.lock_data.release()
             self.sp_cumulate[:] = 0
         
-        self.rms = sqrt(self.RMS_sine_factor * sum(self.v ** 2) / len(self.v))
+        self.rms = sqrt(self.RMS_sine_factor * sum(self.v ** 2, axis=0) / len(self.v))
 
     def get_volt(self):
         self.lock_data.acquire()  # TODO: rewrite using context management protocol (with lock:)
@@ -213,7 +217,8 @@ class analyzerData():
 
     def get_FFT_RMS_dBA(self):
         self.lock_data.acquire()
-        fft_rms = sqrt(2 * sum(self.sp_vo) / self.wnd_factor / self.sz_fft / sum(self.wnd ** 2))
+        fft_rms = sqrt(2 * sum(self.sp_vo, axis=0) / self.wnd_factor \
+                       / self.sz_fft / sum(self.wnd ** 2, axis=0))
         self.lock_data.release()
         np.seterr(divide='ignore')       # for God's sake
         return 20*log10(fft_rms) + self.RMS_db_sine_inc
@@ -572,7 +577,7 @@ if __name__ == '__main__':
 
         # init analyzer data
         analyzer_data = analyzerData(size_chunk, rec_thread.conf['sample_rate'],
-                                     n_ave, RMS_normalize_to_sine)
+                                     n_ave, 1, RMS_normalize_to_sine)
         analyzer_data.loadCalib(calib_path)
         analyzer_data.use_dBA = use_dBA
 

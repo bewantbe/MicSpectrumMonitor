@@ -50,9 +50,12 @@ Roadmap:
   - done.
 * Add button to save the window as a png file
   - done.
-* apply analysis to multi-channels
+* apply analysis to multi-channels.
+  - extend analyzerData to multi-channels
+  - extend plots
 * Add limit to FPS. ref to the fps counter design in pyqtgraph example
 * show multi-channel waveform spectrum spectrogram
+* Add RMS curve plot.
 * User interaction design
   - start/stop recording
   - monitoring/stop
@@ -61,6 +64,9 @@ Roadmap:
   - Show possible recording time left.
 * Test AD7606C
 * link frequency axis of spectrum and spectrogram
+* consider support RF64 format for wav file, e.g.
+  - using soundfile, https://pypi.org/project/soundfile/
+  - using pysndfile, https://pypi.org/project/pysndfile/, https://forge-2.ircam.fr/roebel/pysndfile
 """
 
 class AudioSaver:
@@ -386,6 +392,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # TODO: allow recThread to accept multiple queues (like pipelines) for multiple downstreams
         #       plan two: in sampleChunkThread, we setup another callback for receiving raw data
 
+        self.channel_selected = [0, 1]  # select channel(s) by vector of indexes
+
         ana_conf = {
             'size_chunk': 1024,
             'n_ave': 1,
@@ -396,13 +404,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # init FFT Analyzer
         self.analyzer_data = analyzerData(
-            ana_conf['size_chunk'], adc_conf['sample_rate'], ana_conf['n_ave'])
+            ana_conf['size_chunk'], adc_conf['sample_rate'], ana_conf['n_ave'],
+            len(self.channel_selected))
         self.analyzer_data.use_dBA = ana_conf['use_dBA']
         
         # signals for calling self.proc_analysis_plot
         self.signal_update_graph.connect(self.update_graph, pg.QtCore.Qt.ConnectionType.QueuedConnection)
 
-        self.channel_selected = [0,1]  # select channel(s) by a index or vector of indexes
         sz_chunk = ana_conf['size_chunk']
         sz_hop = ana_conf['size_chunk'] // 2
         self.chunk_process_thread = sampleChunkThread('chunking',
@@ -442,7 +450,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # For setup the wav writer
         wav_saver_conf = {
             'wav_path': self.wav_save_path,
-            'n_channel': self.adc_conf['n_channel'],
+            'n_channel': len(self.channel_selected),
             'bit_depth': self.bit_depth,
             'sample_rate': self.adc_conf['sample_rate']
         }
@@ -486,11 +494,11 @@ class MainWindow(QtWidgets.QMainWindow):
     def proc_analysis_plot(self, data_chunk):
         ## usually called from data processing thread
         # analysing
-        self.analyzer_data.put(data_chunk[:,1])
+        self.analyzer_data.put(data_chunk)
         fqs = self.analyzer_data.fqs
         rms_db = self.analyzer_data.get_RMS_dB()
-        volt = self.analyzer_data.get_volt()
-        spectrum_db = self.analyzer_data.get_spectrum_dB()
+        volt = self.analyzer_data.get_volt()[:,0]
+        spectrum_db = self.analyzer_data.get_spectrum_dB()[:,0]
         self.spectrogram_plot.feed_spectrum(spectrum_db)
         # plot
         self.signal_update_graph.emit((rms_db, volt, fqs, spectrum_db))
