@@ -51,8 +51,10 @@ Roadmap:
 * Add button to save the window as a png file
   - done.
 * apply analysis to multi-channels.
-  - extend analyzerData to multi-channels
+  - extend analyzerData to multi-channels: done
   - extend plots
+    + done waveform
+* Add show FPS.
 * Add limit to FPS. ref to the fps counter design in pyqtgraph example
 * show multi-channel waveform spectrum spectrogram
 * Add RMS curve plot.
@@ -149,26 +151,69 @@ class RecorderWriteThread(threading.Thread):
         # might be called from other thread
         return not self._stop_event.is_set()
 
+def GetColorMapLut(n_point, cm_name = 'CET-C6'):
+    """
+    Good colormaps for our purpose:
+    From Color Maps example in
+    ```
+    import pyqtgraph.examples
+    pyqtgraph.examples.run()
+    ```
+    CET-C6s             (loop)
+    CET-C6              (loop)
+    CET-R2              (linear)
+    PAL-relaxed         (loop)
+    PAL-relaxed_bright  (loop)
+    """
+    is_loop_dic = {
+        'CET-C6s': True,
+        'CET-C6': True,
+        'CET-R2': False,
+        'PAL-relaxed': True,
+        'PAL-relaxed_bright': True,
+    }
+    cm_loop = is_loop_dic[cm_name]
+    cm = pg.colormap.get(cm_name)
+    c_stop = (1 - 1.0 / n_point) if cm_loop else 1.0
+    lut = cm.getLookupTable(start = 0.0, stop = c_stop, nPts = n_point)
+    return lut
+
 class WaveformPlot:
     def __init__(self):
         self.auto_range = True
     
     def init_to_widget(self):
         #dock1.hideTitleBar()
-        widg1 = pg.PlotWidget(title="Waveform")
-        d1_plot = widg1.plot(np.random.normal(size=100))
-        widg1.getPlotItem().getAxis('left').setWidth(50)
-        self.widg1 = widg1
-        self.d1_plot = d1_plot
-        return widg1
+        plot_widget = pg.PlotWidget(title="Waveform")
+        plot_item = plot_widget.plot(
+            np.random.normal(size=100),
+            pen = (0, 2),
+            name = 'ch1')
+        plot_widget.getPlotItem().getAxis('left').setWidth(50)
+        self.plot_widget = plot_widget
+        self.plot_items = [plot_item]
+        return plot_widget
 
     def init_param(self, analyzer, sz_hop):
         self.sz_chunk = analyzer.sz_chunk
         self.sz_hop = sz_hop              # overlap = sz_chunk - sz_hop
+        self.n_channel = analyzer.n_channel
+        for i in range(1, self.n_channel):
+            pl = self.plot_widget.plot(
+                np.random.normal(size=100),
+                name = f'ch{i+1}')
+            self.plot_items.append(pl)
+        self.lut = GetColorMapLut(self.n_channel)
+        for i in range(self.n_channel):
+            self.plot_items[i].setPen(
+                #pen = pg.mkPen(color=(i, self.n_channel), width=1),
+                #pen = (i, self.n_channel),
+                self.lut[i]
+            )
 
     def config_plot(self):
         if not self.auto_range:
-            self.widg1.setRange(self.waveform_plot_range)
+            self.plot_widget.setRange(self.waveform_plot_range)
 
     @property
     def waveform_plot_range(self):
@@ -176,7 +221,8 @@ class WaveformPlot:
         return rg  # x, y, width, height
 
     def update(self, volt):
-        self.d1_plot.setData(volt)
+        for i in range(self.n_channel):
+            self.plot_items[i].setData(volt[:,i])
 
 class SpectrumPlot:
     def __init__(self):
@@ -260,7 +306,7 @@ class SpectrogramPlot:
     def feed_spectrum(self, spectrum):
         # separate computation (here) and plot (in update()) in different threads
         with self.spam_lock:
-            self.spam_bmp[self.spam_loop_cursor,:] = spectrum
+            self.spam_bmp[self.spam_loop_cursor,:] = spectrum[:,0]
             self.spam_loop_cursor = (self.spam_loop_cursor + 1) % self.spam_len
         return self.spam_bmp
     
@@ -497,8 +543,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.analyzer_data.put(data_chunk)
         fqs = self.analyzer_data.fqs
         rms_db = self.analyzer_data.get_RMS_dB()
-        volt = self.analyzer_data.get_volt()[:,0]
-        spectrum_db = self.analyzer_data.get_spectrum_dB()[:,0]
+        volt = self.analyzer_data.get_volt()
+        spectrum_db = self.analyzer_data.get_spectrum_dB()
         self.spectrogram_plot.feed_spectrum(spectrum_db)
         # plot
         self.signal_update_graph.emit((rms_db, volt, fqs, spectrum_db))
@@ -509,7 +555,7 @@ class MainWindow(QtWidgets.QMainWindow):
         rms_db, volt, fqs, spectrum_db = obj
         # ploting
         self.waveform_plot.update(volt)
-        self.spectrum_plot.update(fqs, spectrum_db)
+        self.spectrum_plot.update(fqs, spectrum_db[:,0])
         self.spectrogram_plot.update()
     
     def custom_close_event(self, event):
