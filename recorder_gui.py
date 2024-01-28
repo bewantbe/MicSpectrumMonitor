@@ -313,6 +313,7 @@ class RMSPlot:
                 pen = self.lut[i],
                 name = f'ch{i+1}')
             self.plot_items.append(pl)
+        self.data_lock = threading.Lock()
     
     def config_plot(self):
         self.plot_widget.getPlotItem().setLimits(
@@ -328,11 +329,16 @@ class RMSPlot:
             [0, self.dB_min, self.t_duration_set, self.dB_max - self.dB_min]))
         return rg  # x, y, width, height
     
-    def update(self, rms_db):
-        self.arr_rms_db[self.loop_cursor,:] = rms_db
+    def feed_rms(self, rms_db):
+        with self.data_lock:
+            self.arr_rms_db[self.loop_cursor,:] = rms_db
         self.loop_cursor = (self.loop_cursor + 1) % self.rms_len
+    
+    def update(self):
+        with self.data_lock:
+            arr = self.arr_rms_db.copy()       # is this minimize the race condition?
         for i in range(self.n_channel):
-            self.plot_items[i].setData(x = self.arr_t, y = self.arr_rms_db[:,i])
+            self.plot_items[i].setData(x = self.arr_t, y = arr[:,i])
 
 class SpectrogramPlot:
     def __init__(self):
@@ -627,6 +633,7 @@ class MainWindow(QtWidgets.QMainWindow):
         rms_db = self.analyzer_data.get_RMS_dB()
         volt = self.analyzer_data.get_volt()
         spectrum_db = self.analyzer_data.get_spectrum_dB()
+        self.rms_plot.feed_rms(rms_db)
         self.spectrogram_plot.feed_spectrum(spectrum_db)
         # plot
         self.signal_update_graph.emit((rms_db, volt, fqs, spectrum_db))
@@ -640,7 +647,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # ploting
         self.waveform_plot.update(volt)
         self.spectrum_plot.update(fqs, spectrum_db)
-        self.rms_plot.update(rms_db)
+        self.rms_plot.update()
         self.spectrogram_plot.update()
     
     def custom_close_event(self, event):
