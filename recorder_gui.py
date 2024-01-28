@@ -217,6 +217,7 @@ class WaveformPlot:
             self.plot_items.append(pl)
 
     def config_plot(self):
+        #self.plot_widget.getPlotItem().setLimits(xMin=-1, xMax=self.sz_chunk)
         if not self.auto_range:
             self.plot_widget.setRange(self.waveform_plot_range)
 
@@ -259,12 +260,13 @@ class SpectrumPlot:
                 name = f'ch{i+1}')
             self.plot_items.append(pl)
 
+    def set_log_mode(self, log_mode):
+        self.log_mode = log_mode
+        for i in range(self.n_channel):
+            self.plot_items[i].setLogMode(x = self.log_mode, y = False)
+
     def config_plot(self):
-        if self.log_mode:
-            pass
-        else:
-            self.plot_widget.setRange(self.spectrum_plot_range)
-            #plot_set.plot_items.setData(x = self.x_freq)
+        self.plot_widget.setRange(self.spectrum_plot_range)
 
     @property
     def spectrum_plot_range(self):
@@ -272,12 +274,9 @@ class SpectrumPlot:
         return rg  # x, y, width, height
 
     def update(self, fqs, spectrum_db):
-        if self.log_mode:
-            pass
-        else:
-            for i in range(self.n_channel):
-                self.plot_items[i].setData(x = fqs, y = spectrum_db[:,i])
-                #self.plot_items.setData(x = self.x_freq, y = spectrum_db)
+        for i in range(self.n_channel):
+            self.plot_items[i].setData(x = fqs, y = spectrum_db[:,i])
+            #self.plot_items.setData(x = self.x_freq, y = spectrum_db)
 
 class RMSPlot:
     def __init__(self):
@@ -295,6 +294,9 @@ class RMSPlot:
         return plot_widget
     
     def init_param(self, analyzer, sz_hop):
+        self.dB_max = analyzer.RMS_db_sine_inc
+        self.dB_min = 20 * np.log10(2**(-15))     # assume 16-bit
+        # for RMS data
         t_hop = sz_hop / analyzer.sample_rate
         self.rms_len = int(self.t_duration_set / t_hop)
         self.t_duration = self.rms_len * t_hop    # correct the duration
@@ -313,14 +315,17 @@ class RMSPlot:
             self.plot_items.append(pl)
     
     def config_plot(self):
+        self.plot_widget.getPlotItem().setLimits(
+            #xMin=0, xMax=self.t_duration,
+            yMin=self.dB_min, yMax=self.dB_max)
         self.plot_widget.setLabels(left='dB', bottom='second')
         if self.fixed_range:
             self.plot_widget.setRange(self.rms_plot_range)
     
     @property
     def rms_plot_range(self):
-        min_db = 20 * np.log10(2**(-15))
-        rg = QtCore.QRectF(*map(float, [0, min_db, self.t_duration_set, 0-min_db]))
+        rg = QtCore.QRectF(*map(float,
+            [0, self.dB_min, self.t_duration_set, self.dB_max - self.dB_min]))
         return rg  # x, y, width, height
     
     def update(self, rms_db):
@@ -336,16 +341,16 @@ class SpectrogramPlot:
 
     def init_to_widget(self):
         # called in main thread init
-        widg3 = pg.GraphicsLayoutWidget()  # use GraphicsLayoutWidget instead of GraphicsView
-        plot_item = widg3.addPlot()
-        w3_img = pg.ImageItem()
-        w3_img.setImage(np.random.normal(size=(100,100)))
-        plot_item.addItem(w3_img)
-        self.widg3 = widg3
-        self.w3_img = w3_img
+        glayout_widget = pg.GraphicsLayoutWidget()  # use GraphicsLayoutWidget instead of GraphicsView
+        plot_item = glayout_widget.addPlot()
+        img_item = pg.ImageItem()
+        img_item.setImage(np.random.normal(size=(100,100)))
+        plot_item.addItem(img_item)
+        self.glayout_widget = glayout_widget
+        self.img_item = img_item
         self.plot_item = plot_item
         # TODO: add color bar
-        return widg3  # for add to dock: dock3.addWidget(widg3)
+        return glayout_widget  # for add to dock: dock3.addWidget(glayout_widget)
     
     def init_param(self, analyzer, sz_hop):
         t_hop = sz_hop / analyzer.sample_rate
@@ -386,7 +391,7 @@ class SpectrogramPlot:
     def update(self):
         spam_bmp = self.get_spectrogram_bmp()
         with self.spam_lock:                   # TODO: maybe I don't need this lock
-            self.w3_img.setImage(spam_bmp,
+            self.img_item.setImage(spam_bmp,
                 rect=[0, 0, self.spam_bmp_t_duration, self.max_freq])
 
 class MainWindow(QtWidgets.QMainWindow):
