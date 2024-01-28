@@ -275,6 +275,56 @@ class SpectrumPlot:
                 self.plot_items[i].setData(x = fqs, y = spectrum_db[:,i])
                 #self.plot_items.setData(x = self.x_freq, y = spectrum_db)
 
+class RMSPlot:
+    def __init__(self):
+        self.fixed_range = False
+        self.t_duration_set = 6.0  # sec
+
+    def init_to_widget(self):
+        #dock2.hideTitleBar()
+        plot_widget = pg.PlotWidget(title="RMS")
+        plot_item = plot_widget.plot(
+            -100 * np.ones(100),
+            name = 'ch1')
+        self.plot_widget = plot_widget
+        self.plot_items = [plot_item]
+        return plot_widget
+    
+    def init_param(self, analyzer, sz_hop):
+        t_hop = sz_hop / analyzer.sample_rate
+        self.rms_len = int(self.t_duration_set / t_hop)
+        self.t_duration = self.rms_len * t_hop    # correct the duration
+        self.loop_cursor = 0
+        self.n_channel = analyzer.n_channel
+        self.arr_rms_db = -100 * np.ones((self.rms_len, self.n_channel))
+        self.arr_t = np.arange(self.rms_len) * t_hop
+        # set plot color
+        self.lut = GetColorMapLut(self.n_channel)
+        self.plot_items[0].setPen(self.lut[0])
+        for i in range(1, self.n_channel):
+            pl = self.plot_widget.plot(
+                -100 * np.ones(100),
+                pen = self.lut[i],
+                name = f'ch{i+1}')
+            self.plot_items.append(pl)
+    
+    def config_plot(self):
+        self.plot_widget.setLabels(left='dB', bottom='second')
+        if self.fixed_range:
+            self.plot_widget.setRange(self.rms_plot_range)
+    
+    @property
+    def rms_plot_range(self):
+        min_db = 20 * np.log10(2**(-15))
+        rg = QtCore.QRectF(*map(float, [0, min_db, self.t_duration_set, 0-min_db]))
+        return rg  # x, y, width, height
+    
+    def update(self, rms_db):
+        self.arr_rms_db[self.loop_cursor,:] = rms_db
+        self.loop_cursor = (self.loop_cursor + 1) % self.rms_len
+        for i in range(self.n_channel):
+            self.plot_items[i].setData(x = self.arr_t, y = self.arr_rms_db[:,i])
+
 class SpectrogramPlot:
     def __init__(self):
         self.log_mode = False
@@ -353,16 +403,19 @@ class MainWindow(QtWidgets.QMainWindow):
         dock1 = Dock("Waveform", size=(100, 200))
         dock2 = Dock("Spectrum", size=(500, 300), closable=True)
         dock3 = Dock("Spectrogram", size=(500,400))
+        dock5 = Dock("RMS", size=(500,200))
         dock4 = Dock("Control Pannel", size=(500,200))
         area.addDock(dock1, 'left')
         area.addDock(dock2, 'bottom', dock1)
         area.addDock(dock4, 'bottom', dock2)
         area.addDock(dock3, 'right')
+        area.addDock(dock5, 'bottom', dock3)
         self.area = area
         self.dock1 = dock1
         self.dock2 = dock2
         self.dock3 = dock3
         self.dock4 = dock4
+        self.dock5 = dock5
 
         ## Add widgets into each dock
 
@@ -377,6 +430,10 @@ class MainWindow(QtWidgets.QMainWindow):
         ## Dock 3
         self.spectrogram_plot = SpectrogramPlot()
         dock3.addWidget(self.spectrogram_plot.init_to_widget())
+
+        ## Dock 5
+        self.rms_plot = RMSPlot()
+        dock5.addWidget(self.rms_plot.init_to_widget())
 
         ## Dock 4
         widg4 = pg.LayoutWidget()
@@ -482,6 +539,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.waveform_plot.config_plot()
         self.spectrum_plot.init_param(self.analyzer_data, sz_hop)
         self.spectrum_plot.config_plot()
+        self.rms_plot.init_param(self.analyzer_data, sz_hop)
+        self.rms_plot.config_plot()
         self.spectrogram_plot.init_param(self.analyzer_data, sz_hop)
         self.spectrogram_plot.config_plot()
 
@@ -569,6 +628,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # ploting
         self.waveform_plot.update(volt)
         self.spectrum_plot.update(fqs, spectrum_db)
+        self.rms_plot.update(rms_db)
         self.spectrogram_plot.update()
     
     def custom_close_event(self, event):
