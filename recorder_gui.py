@@ -54,8 +54,10 @@ Roadmap:
   - extend analyzerData to multi-channels: done
   - extend plots
     + done waveform
+    + done spectrum
 * Add show FPS.
 * Add limit to FPS. ref to the fps counter design in pyqtgraph example
+* Allow Log freq axis mode.
 * show multi-channel waveform spectrum spectrogram
 * Add RMS curve plot.
 * User interaction design
@@ -187,7 +189,6 @@ class WaveformPlot:
         plot_widget = pg.PlotWidget(title="Waveform")
         plot_item = plot_widget.plot(
             np.random.normal(size=100),
-            pen = (0, 2),
             name = 'ch1')
         plot_widget.getPlotItem().getAxis('left').setWidth(50)
         self.plot_widget = plot_widget
@@ -198,18 +199,18 @@ class WaveformPlot:
         self.sz_chunk = analyzer.sz_chunk
         self.sz_hop = sz_hop              # overlap = sz_chunk - sz_hop
         self.n_channel = analyzer.n_channel
+        self.lut = GetColorMapLut(self.n_channel)
+        self.plot_items[0].setPen(
+            self.lut[0]
+            #pen = pg.mkPen(color=(i, self.n_channel), width=1),
+            #pen = (i, self.n_channel),
+        )
         for i in range(1, self.n_channel):
             pl = self.plot_widget.plot(
                 np.random.normal(size=100),
+                pen = self.lut[i],
                 name = f'ch{i+1}')
             self.plot_items.append(pl)
-        self.lut = GetColorMapLut(self.n_channel)
-        for i in range(self.n_channel):
-            self.plot_items[i].setPen(
-                #pen = pg.mkPen(color=(i, self.n_channel), width=1),
-                #pen = (i, self.n_channel),
-                self.lut[i]
-            )
 
     def config_plot(self):
         if not self.auto_range:
@@ -230,11 +231,13 @@ class SpectrumPlot:
     
     def init_to_widget(self):
         #dock2.hideTitleBar()
-        widg2 = pg.PlotWidget(title="Spectrum")
-        d2_plot = widg2.plot(np.random.normal(size=100))
-        self.widg2 = widg2
-        self.d2_plot = d2_plot
-        return widg2
+        plot_widget = pg.PlotWidget(title="Spectrum")
+        plot_item = plot_widget.plot(
+            np.random.normal(size=100),
+            name = 'ch1')
+        self.plot_widget = plot_widget
+        self.plot_items = [plot_item]
+        return plot_widget
 
     def init_param(self, analyzer, sz_hop):
         self.sz_chunk = analyzer.sz_chunk
@@ -242,13 +245,22 @@ class SpectrumPlot:
         self.max_freq = analyzer.fqs[-1]
         self.x_freq = analyzer.fqs
         self.n_freq = len(self.x_freq)
+        self.n_channel = analyzer.n_channel
+        self.lut = GetColorMapLut(self.n_channel)
+        self.plot_items[0].setPen(self.lut[0])
+        for i in range(1, self.n_channel):
+            pl = self.plot_widget.plot(
+                np.random.normal(size=100),
+                pen = self.lut[i],
+                name = f'ch{i+1}')
+            self.plot_items.append(pl)
 
     def config_plot(self):
         if self.log_mode:
             pass
         else:
-            self.widg2.setRange(self.spectrum_plot_range)
-            #plot_set.d2_plot.setData(x = self.x_freq)
+            self.plot_widget.setRange(self.spectrum_plot_range)
+            #plot_set.plot_items.setData(x = self.x_freq)
 
     @property
     def spectrum_plot_range(self):
@@ -259,8 +271,9 @@ class SpectrumPlot:
         if self.log_mode:
             pass
         else:
-            self.d2_plot.setData(x = fqs, y = spectrum_db)
-            #self.d2_plot.setData(x = self.x_freq, y = spectrum_db)
+            for i in range(self.n_channel):
+                self.plot_items[i].setData(x = fqs, y = spectrum_db[:,i])
+                #self.plot_items.setData(x = self.x_freq, y = spectrum_db)
 
 class SpectrogramPlot:
     def __init__(self):
@@ -555,7 +568,7 @@ class MainWindow(QtWidgets.QMainWindow):
         rms_db, volt, fqs, spectrum_db = obj
         # ploting
         self.waveform_plot.update(volt)
-        self.spectrum_plot.update(fqs, spectrum_db[:,0])
+        self.spectrum_plot.update(fqs, spectrum_db)
         self.spectrogram_plot.update()
     
     def custom_close_event(self, event):
