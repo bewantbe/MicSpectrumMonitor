@@ -9,6 +9,7 @@
 import os
 import shutil
 import datetime
+import time
 import queue
 import wave
 import math
@@ -589,6 +590,10 @@ class AudioSaverManager:
         self.wav_data_queue = None
         self.wav_writer_thread = None
         self.ui_dock4.label_rec_time_timer = None
+        # utilizer
+        self._disk_space_update_interval = 10.0
+        self._last_update_disk_space_left = time.time() - self._disk_space_update_interval
+        self._disk_space_left = float('inf')
 
     def init_ui(self):
         self.ui_dock4.pushButton_rec.clicked.connect(self.start_stop_saving)
@@ -664,13 +669,22 @@ class AudioSaverManager:
         sz_per_sec = self.wav_writer_thread.writer.frame_bytes * self.wav_writer_thread.writer.sample_rate
         t_4g_left = sz_4g_left / sz_per_sec
         # get file system space left, TODO: query it less often, like every 10 sec
-        sav_dir = os.path.dirname(os.path.abspath(self.wav_save_path))
-        disk_usage = shutil.disk_usage(sav_dir)
-        t_disk_left = disk_usage.free / sz_per_sec
+        t_disk_left = self._lazy_update_disk_space_left() / sz_per_sec
         t_min_left = min(t_4g_left, t_disk_left)
         t_left_str = time_to_HHMMSSm(t_min_left)
         # time rec and time left
         self.ui_dock4.label_rec_remain.setText('Rec: ' + t_rec_str + '  (left: ' + t_left_str + ')')
+
+    def _lazy_update_disk_space_left(self):
+        t_now = time.time()
+        if t_now < self._last_update_disk_space_left + self._disk_space_update_interval:
+            # no need to update
+            return self._disk_space_left
+        self._last_update_disk_space_left = t_now
+        sav_dir = os.path.dirname(os.path.abspath(self.wav_save_path))
+        disk_usage = shutil.disk_usage(sav_dir)
+        self._disk_space_left = disk_usage.free
+        return self._disk_space_left
 
     def start_audio_saving(self):
         # Ensure we have a file name anyway
@@ -705,7 +719,7 @@ class AudioSaverManager:
         self.wav_writer_thread.stop()
         self.wav_writer_thread.join()
         # pop up a message box saying the file is saved
-        self.main_wnd.simple_message_box(f"The recording is saved to {self.wav_save_path}.")
+        #self.main_wnd.simple_message_box(f"The recording is saved to {self.wav_save_path}.")
     
 class MainWindow(QtWidgets.QMainWindow):
     """Main Window for monitoring and recording the Mic/ADC signals."""
@@ -723,7 +737,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         ## setup layout
         dock1 = Dock("Waveform", size=(100, 200))
-        dock2 = Dock("Spectrum", size=(500, 300), closable=True)
+        dock2 = Dock("Spectrum", size=(500, 300))  # removed closable
         dock3 = Dock("Spectrogram", size=(500,400))
         dock5 = Dock("RMS", size=(500,200))
         dock4 = Dock("Control Pannel", size=(500,250))
