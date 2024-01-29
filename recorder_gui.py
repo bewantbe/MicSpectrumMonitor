@@ -78,10 +78,14 @@ Roadmap:
   - padding: spectrogram plot.
 * Better user interaction design
   - start/stop recording
+    + done
   - monitoring/stop
   - select channels
   - Show the recording time we saved.
+    + done
   - Show possible recording time left.
+    + done
+    + longer update time, ing
 * Add units for axis, and get scale prefix.
 * Add show FPS, ref to the fps counter design in pyqtgraph example
 * Test AD7606C
@@ -429,16 +433,110 @@ class SpectrogramPlot:
             self.img_item.setImage(spam_bmp,
                 rect=[0, 0, self.spam_bmp_t_duration, self.max_freq])
 
-"""
 class AnalyzerParameters:
     def __init__(self):
-        self.
-"""
+        self._ana_conf_keys = [
+            'size_chunk', 'n_ave', 'use_dBA']
+
+    def load_device_default(self, device_name):
+        if device_name == 'mic':
+            self.load_mic_default()
+        elif device_name == 'AD7606C':
+            self.load_AD7606C_default()
+        else:
+            raise ValueError(f'Unknown device name "{device_name}"')
+
+    def ui_connect(self, main_wnd):
+        self.main_wnd = main_wnd
+        # first update
+        self.update_channel_selected()
+        # auto update the channel selected
+        self.main_wnd.ui_dock4.lineEdit_ch.textChanged.connect(self.update_channel_selected)
+        self.update_to_ui()
+    
+    def update_to_ui(self):
+        # if we have sampler_id defined, means we are initialized
+        if not hasattr(self, 'sampler_id'):
+            return
+        # TODO: update the UI
+        ui = self.main_wnd.ui_dock4
+        ui.comboBox_dev.setCurrentText(self.device_name)
+
+    def update_channel_selected(self):
+        channel_selected_text = self.main_wnd.ui_dock4.lineEdit_ch.text()
+        try:
+            # note: channel index starts from 0 in the code, but starts from 1 in the UI
+            chs = [int(c) - 1 for c in channel_selected_text.split(',')]
+        except ValueError:
+            # set text box to light-red background
+            self.main_wnd.ui_dock4.lineEdit_ch.setStyleSheet("background-color: LightSalmon")
+            return
+        else:
+            # set normal background
+            self.main_wnd.ui_dock4.lineEdit_ch.setStyleSheet("background-color: white")
+        self.channel_selected = chs
+
+    def get_adc_conf(self):
+        adc_conf = {}
+        for k in self._adc_conf_keys:
+            adc_conf[k] = getattr(self, k)
+        return adc_conf
+
+    def get_ana_conf(self):
+        ana_conf = {}
+        for k in self._ana_conf_keys:
+            ana_conf[k] = getattr(self, k)
+        return ana_conf
+
+    def load_mic_default(self):
+        # for mic / ADC
+        self.sampler_id   = 'mic'
+        self.device       = 'default'
+        self.device_name  = 'System mic'
+        self.sample_rate  = 48000
+        self.n_channel    = 2
+        self.value_format = 'S16_LE'
+        self.bit_depth    = 16       # assume always S16_LE
+        self.periodsize   = 1024
+        self.channel_id_max = 2
+        # pipeline
+        self.channel_selected = [1, 2]
+        self.data_queue_max_size = 1000
+        # for FFT analyzer
+        self.size_chunk   = 1024
+        self.n_ave        = 1
+        self.use_dBA      = False
+        # TODO: calibration_path
+        self._adc_conf_keys = [
+            'sampler_id', 'device', 'sample_rate', 'n_channel',
+            'value_format', 'periodsize']
+
+    def load_AD7606C_default(self):
+        # for mic / ADC
+        self.sampler_id   = 'ad7606c'
+        self.device       = 'default'
+        self.device_name  = 'AD7606C'
+        self.sample_rate  = 48000
+        self.n_channel    = 2
+        self.value_format = 'S16_LE' # depends on the range setup
+        self.bit_depth    = 16       # assume always S16_LE
+        self.periodsize   = 4800
+        self.channel_id_max = 8
+        # pipeline
+        self.channel_selected = [1, 2]
+        self.data_queue_max_size = 1000
+        # for FFT analyzer
+        self.size_chunk   = 1024
+        self.n_ave        = 1
+        self.use_dBA      = False
+        self._adc_conf_keys = [
+            'sampler_id', 'sample_rate', 'periodsize']
 
 class AudioSaverManager:
     def __init__(self, main_wnd):
         self.main_wnd = main_wnd
         self.ui_dock4 = main_wnd.ui_dock4
+        self.ana_param = main_wnd.ana_param
         ## for audio saving thread
         # Data flow: process(chunk_process_thread) -> wav_data_queue -> wav_writer
         self.wav_data_queue = None
@@ -530,12 +628,6 @@ class AudioSaverManager:
     def start_audio_saving(self):
         # Ensure we have a file name anyway
         self.wav_save_path = self.ui_dock4.lineEdit_wavpath.text()
-        self.channel_selected_text = self.ui_dock4.lineEdit_ch.text()
-        self.channel_selected = [int(c) for c in self.channel_selected_text.split(',')]
-        self.bit_depth = 16
-        self.adc_conf = self.main_wnd.adc_conf
-        self.data_queue_max_size = self.main_wnd.data_queue_max_size
-        # self.main_wnd. TODO: Use ana_param
         if (self.wav_save_path is None) or (self.wav_save_path == ''):
             # set file name by date and time
             now = datetime.datetime.now()
@@ -544,11 +636,12 @@ class AudioSaverManager:
         # For setup the wav writer
         wav_saver_conf = {
             'wav_path': self.wav_save_path,
-            'n_channel': len(self.channel_selected),
-            'bit_depth': self.bit_depth,
-            'sample_rate': self.adc_conf['sample_rate']
+            'n_channel': len(self.ana_param.channel_selected),
+            'bit_depth': self.ana_param.bit_depth,
+            'sample_rate': self.ana_param.sample_rate
         }
-        self.wav_data_queue = queue.Queue(self.data_queue_max_size)  # Get a new queue anyway, TODO: avoid memory leak
+        # Get a new queue anyway, TODO: avoid memory leak
+        self.wav_data_queue = queue.Queue(self.ana_param.data_queue_max_size)
         self.wav_writer_thread = RecorderWriteThread(
             self.wav_data_queue, AudioSaver(), wav_saver_conf)
         self.wav_writer_thread.start()
@@ -626,9 +719,6 @@ class MainWindow(QtWidgets.QMainWindow):
         ui_dock4.setupUi(self.dock4)
         self.ui_dock4 = ui_dock4
 
-        self.audio_saver_manager = AudioSaverManager(self)
-        self.audio_saver_manager.init_ui()
-
         """
         widg4 = pg.LayoutWidget()
         self.widg4 = widg4
@@ -670,68 +760,55 @@ class MainWindow(QtWidgets.QMainWindow):
         dock4.addWidget(widg4)
         """
 
+        self.ana_param = AnalyzerParameters()
+
+        # setup audio input
+        pcm_device = 'mic'
+        self.ana_param.load_device_default(pcm_device)
+        adc_conf = self.ana_param.get_adc_conf()
+
+        # put data on the GUI
+        self.ana_param.ui_connect(self)
+
+        # audio saver relies on ana_param
+        self.audio_saver_manager = AudioSaverManager(self)
+        self.audio_saver_manager.init_ui()
+
         # Connect the custom closeEvent
         self.closeEvent = self.custom_close_event
 
         self.show()
 
-        ## setup audio input and processings
-        pcm_device = 'mic'
-        if pcm_device == 'ad7606c':
-            adc_conf = {
-                'sampler_id': 'ad7606c',
-                'sample_rate': 48000,
-                'periodsize': 4800,
-            }
-        else:
-            adc_conf = {
-                'sampler_id'   : 'mic',
-                'device'       : 'default',
-                'sample_rate'  : 48000,
-                'n_channel'   : 2,
-                'value_format' : 'S16_LE',
-                'periodsize'   : 1024,
-            }
-        self.adc_conf = adc_conf
-        self.bit_depth = 16       # assume always S16_LE
-
         ## setup data gernerator and analyzer
         # Data flow: mic source -> buf_queue -> process{analyzer, signal to plot}
-        self.data_queue_max_size = 10000
-        self.buf_queue = queue.Queue(self.data_queue_max_size)
+        self.buf_queue = queue.Queue(self.ana_param.data_queue_max_size)
         self.rec_thread = recThread('recorder', self.buf_queue, adc_conf)
         # TODO: allow recThread to accept multiple queues (like pipelines) for multiple downstreams
         #       plan two: in sampleChunkThread, we setup another callback for receiving raw data
 
-        self.channel_selected = [0, 1]  # select channel(s) by vector of indexes
-
-        ana_conf = {
-            'size_chunk': 1024,
-            'n_ave': 1,
-            'use_dBA': False,
-            # TODO: calibration_path
-        }
-        self.ana_conf = ana_conf
+        ana_conf = self.ana_param.get_ana_conf()
 
         # init FFT Analyzer
         self.analyzer_data = analyzerData(
             ana_conf['size_chunk'], adc_conf['sample_rate'], ana_conf['n_ave'],
-            len(self.channel_selected))
+            len(self.ana_param.channel_selected))
         self.analyzer_data.use_dBA = ana_conf['use_dBA']
         
         # signals for calling self.proc_analysis_plot
-        self.signal_update_graph.connect(self.update_graph, pg.QtCore.Qt.ConnectionType.QueuedConnection)
+        self.signal_update_graph.connect(self.update_graph,
+                                         pg.QtCore.Qt.ConnectionType.QueuedConnection)
         self.fps_lim = FPSLimiter(30)
 
         sz_chunk = ana_conf['size_chunk']
         sz_hop = ana_conf['size_chunk'] // 2
         self.chunk_process_thread = sampleChunkThread('chunking',
-            self.proc_analysis_plot, self.buf_queue, self.channel_selected,
+            self.proc_analysis_plot, self.buf_queue,
+            self.ana_param.channel_selected,
             sz_chunk, sz_hop,
             callback_raw = self.proc_orig_data)
 
         ## setup plots
-        self.waveform_plot.init_param(self.analyzer_data, sz_hop)
+        self.waveform_plot.init_param(self.analyzer_data, sz_hop)  # TODO: replace here analyzer_data with ana_param
         self.waveform_plot.config_plot()
         self.spectrum_plot.init_param(self.analyzer_data, sz_hop)
         self.spectrum_plot.config_plot()
