@@ -76,20 +76,25 @@ Roadmap:
   - done.
 * Allow Log freq axis mode.
   - done spectrum plot.
-  - padding: spectrogram plot.
 * Better user interaction design
   - start/stop recording
     + done
-  - monitoring/stop
-  - select channels
   - Show the recording time we saved.
     + done
   - Show possible recording time left.
     + done
-    + longer update time, ing
-* Add units for axis, and get scale prefix.
-* Add show FPS, ref to the fps counter design in pyqtgraph example
+* Add units for axis, and get scale prefix, set grid for some plot.
+  - done
+* longer update time for remaining space for rec.
 * Test AD7606C
+* Spectrogram plot log mode.
+* callback to device
+* callback to monitoring/stop
+* callback to select channels
+* callback to sampling rate
+* callback to FFT length
+* callback to averaging
+* Add show FPS, ref to the fps counter design in pyqtgraph example
 * link frequency axis of spectrum and spectrogram
 * consider support RF64 format for wav file, e.g.
   - using soundfile, https://pypi.org/project/soundfile/
@@ -270,10 +275,13 @@ class SpectrumPlot:
     
     def init_to_widget(self):
         #dock2.hideTitleBar()
-        plot_widget = pg.PlotWidget(title="Spectrum")
+        plot_widget = pg.PlotWidget()
         plot_item = plot_widget.plot(
             np.random.normal(size=100),
             name = 'ch1')
+        plot_widget.setLabel('left', units='dB')
+        plot_widget.setLabel('bottom', units='Hz')
+        plot_widget.showGrid(x=True, y=True)
         self.plot_widget = plot_widget
         self.plot_items = [plot_item]
         return plot_widget
@@ -353,7 +361,9 @@ class RMSPlot:
         self.plot_widget.getPlotItem().setLimits(
             #xMin=0, xMax=self.t_duration,
             yMin=self.dB_min, yMax=self.dB_max)
-        self.plot_widget.setLabels(left='dB', bottom='second')
+        self.plot_widget.setLabel('bottom', units='second')
+        self.plot_widget.setLabel('left', units='dB')
+        self.plot_widget.showGrid(x=True, y=True)
         if self.fixed_range:
             self.plot_widget.setRange(self.rms_plot_range)
     
@@ -410,7 +420,8 @@ class SpectrogramPlot:
         if self.log_mode:
             pass
         else:
-            self.plot_item.setLabels(left='Hz', bottom='second')
+            self.plot_item.setLabel('left', units='Hz')
+            self.plot_item.setLabel('bottom', units='second')
             #self.plot_item.setRange(xRange=[0, self.spam_bmp_t_duration], yRange=[0, self.max_freq])
             #x_axis = self.plot_item.getAxis('bottom')
             #y_axis = self.plot_item.getAxis('left')
