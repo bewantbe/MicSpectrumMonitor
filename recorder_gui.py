@@ -11,6 +11,7 @@ import shutil
 import datetime
 import queue
 import wave
+import math
 import threading
 
 import logging
@@ -433,6 +434,27 @@ class SpectrogramPlot:
             self.img_item.setImage(spam_bmp,
                 rect=[0, 0, self.spam_bmp_t_duration, self.max_freq])
 
+# copy from M3F20xm.py
+def pretty_num_unit(v, n_prec = 4):
+    # print 100000 as 100k, etc.
+    if v == 0:
+        return '0'
+        #return f'%.{n_prec}f'%(v,)
+    scale_st = {
+        -1:'m', -2:'u', -3:'n', -4:'p', -5:'f', -6:'a',
+        0:'', 1:'k', 2:'M', 3:'G', 4:'T', 5:'P', 6:'E'
+    }
+    sign = -1 if v < 0 else 1
+    v = v * sign
+    scale = int(math.floor(math.log(v) / math.log(1000.0)))
+    if scale > 6:
+        scale = 6
+    if scale < -6:
+        scale = -6
+    v = v * 1000.0 ** (-scale)
+    st = f'%.{n_prec}g%s'%(v, scale_st[scale])
+    return st
+
 class AnalyzerParameters:
     def __init__(self):
         self._ana_conf_keys = [
@@ -461,6 +483,9 @@ class AnalyzerParameters:
         # TODO: update the UI
         ui = self.main_wnd.ui_dock4
         ui.comboBox_dev.setCurrentText(self.device_name)
+        ui.comboBox_sr.clear()
+        ui.comboBox_sr.addItems(self.dic_sample_rate.keys())
+        ui.comboBox_sr.setCurrentText(pretty_num_unit(self.sample_rate) + 'Hz')
 
     def update_channel_selected(self):
         channel_selected_text = self.main_wnd.ui_dock4.lineEdit_ch.text()
@@ -498,7 +523,14 @@ class AnalyzerParameters:
         self.value_format = 'S16_LE'
         self.bit_depth    = 16       # assume always S16_LE
         self.periodsize   = 1024
-        self.channel_id_max = 2
+        # allowable values
+        self.dic_sample_rate = {    # might be generated
+            '48kHz': 48000,
+            '44.1kHz': 44100,
+            '32kHz': 32000,
+            '16kHz': 16000,
+            '8kHz': 8000,
+        }
         # pipeline
         self.channel_selected = [1, 2]
         self.data_queue_max_size = 1000
@@ -517,11 +549,15 @@ class AnalyzerParameters:
         self.device       = 'default'
         self.device_name  = 'AD7606C'
         self.sample_rate  = 48000
-        self.n_channel    = 2
+        self.n_channel    = 8
         self.value_format = 'S16_LE' # depends on the range setup
         self.bit_depth    = 16       # assume always S16_LE
         self.periodsize   = 4800
-        self.channel_id_max = 8
+        self.dic_sample_rate = {    # might be generated
+            '48kHz' : 48000,
+            '250kHz': 250000,
+            '500kHz': 500000,
+        }
         # pipeline
         self.channel_selected = [1, 2]
         self.data_queue_max_size = 1000
