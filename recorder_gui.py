@@ -6,10 +6,18 @@
 # Contact: xyy <bewantbe@gmail.com>
 # Github: https://github.com/bewantbe/MicSpectrumMonitor
 
+import os
+import shutil
 import datetime
 import queue
 import wave
 import threading
+
+import logging
+# enable logging
+logging.basicConfig(
+    level=logging.DEBUG
+)
 
 import numpy as np
 
@@ -74,6 +82,7 @@ Roadmap:
   - select channels
   - Show the recording time we saved.
   - Show possible recording time left.
+* Add units for axis, and get scale prefix.
 * Add show FPS, ref to the fps counter design in pyqtgraph example
 * Test AD7606C
 * link frequency axis of spectrum and spectrogram
@@ -92,6 +101,7 @@ class AudioSaver:
         self.wav_handler.setsampwidth(bit_depth // 8)
         self.wav_handler.setframerate(sample_rate)
         self.n_channel = n_channel
+        self.sample_rate = sample_rate
         self.frame_bytes = bit_depth // 8 * n_channel
         self.volt_scaler = 2 ** (bit_depth - 1)
         self.np_dtype = np.dtype('int{}'.format(bit_depth))
@@ -105,6 +115,15 @@ class AudioSaver:
         self.wav_handler.close()
         self.wav_handler = None
     
+    def get_n_frame(self):
+        return self.n_frame
+
+    def get_t(self):
+        return self.n_frame / self.sample_rate
+
+    def get_n_byte(self):
+        return self.n_frame * self.frame_bytes
+
     def write(self, data):
         if self.wav_handler is None:
             raise RuntimeError("AudioSaver is not initialized.")
@@ -119,7 +138,7 @@ class AudioSaver:
         # data must be a bytes-like object, len() will return number of bytes
         self.wav_handler.writeframes(data)
         #self.wav_handler.writeframesraw(data)    should be faster
-        self.n_frame += len(data) // self.frame_bytes
+        self.n_frame += data.nbytes // self.frame_bytes
     
     def __del__(self):
         self.close()
@@ -188,6 +207,11 @@ def GetColorMapLut(n_point, cm_name = 'CET-C6'):
     c_stop = (1 - 1.0 / n_point) if cm_loop else 1.0
     lut = cm.getLookupTable(start = 0.0, stop = c_stop, nPts = n_point)
     return lut
+
+def time_to_HHMMSSm(t):
+    hours, remainder = divmod(t, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return "{:02}:{:02}:{:04.1f}".format(int(hours), int(minutes), seconds)
 
 class WaveformPlot:
     def __init__(self):
@@ -457,10 +481,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         ## Dock 4
         # See also: https://build-system.fman.io/qt-designer-download
+        #           https://doc.qt.io/qt-6/designer-quick-start.html
         # pyuic6 control_pannel.ui -o control_pannel.py
         # python -m PyQt6.uic.pyuic -o output.py -x input.ui
         ui_dock4 = Ui_Dock4()
         ui_dock4.setupUi(self.dock4)
+        self.ui_dock4 = ui_dock4
+        ui_dock4.pushButton_rec.clicked.connect(self.start_stop_saving)
+        self.wav_save_path = None
 
         """
         widg4 = pg.LayoutWidget()
@@ -577,6 +605,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Data flow: process{} -> wav_data_queue -> wav_writer
         self.wav_data_queue = None
         self.wav_writer_thread = None
+        self.ui_dock4.label_rec_time_timer = None
+
+        self.b_monitor_on = True
 
         self.rec_thread.start()
         self.chunk_process_thread.start()
@@ -585,15 +616,92 @@ class MainWindow(QtWidgets.QMainWindow):
         self.wav_save_path = QtWidgets.QFileDialog.getSaveFileName()[0]
         self.file_path_edit.setText(self.wav_save_path)
 
+    def is_device_on(self):
+        # Test if the mic/ADC is on
+        if self.rec_thread is None:
+            return False
+        return self.rec_thread.b_run
+
+    def is_monitoring_on(self):
+        # Test if the monitor is on
+        if self.chunk_process_thread is None:
+            return False
+        return self.b_monitor_on
+
+    def is_audio_saving_on(self):
+        # Test if the audio saving (to WAV) is on
+        if self.wav_writer_thread is None:
+            return False
+        return self.wav_writer_thread.is_running()
+
+    # TODO: maybe we need a saver manager class
+    def start_stop_saving(self):
+        if self.is_audio_saving_on():
+            # stop the recording
+            self.stop_audio_saving()
+            # set the button text to 'Start recording', make background grey
+            self.ui_dock4.pushButton_rec.setText('Start recording')
+            self.ui_dock4.pushButton_rec.setStyleSheet("background-color: grey")
+            # invalidate the file name in the lineedit, put old text to the placeholder
+            self.ui_dock4.lineEdit_wavpath.setText('')
+            self.ui_dock4.lineEdit_wavpath.setPlaceholderText(self.wav_save_path)
+            self.wav_save_path = None
+            # Disable time recorded message
+            if self.ui_dock4.label_rec_time_timer is not None:
+                self.ui_dock4.label_rec_time_timer.stop()
+                self.ui_dock4.label_rec_time_timer = None
+            # set rec time label color to grey
+            self.ui_dock4.label_rec_remain.setStyleSheet("color: grey")
+        else:
+            # start the recording
+            ok = self.start_audio_saving()
+            if not ok:
+                # failed to start... hmmm
+                logging.error("Failed to start audio saving. Path: %s", self.wav_save_path)
+                return
+            # set the button text to 'Stop recording', make background red
+            self.ui_dock4.pushButton_rec.setText('Stop recording')
+            self.ui_dock4.pushButton_rec.setStyleSheet("background-color: LightSalmon")
+            # Enable time recorded message
+            # Update once a second, by using a timer
+            self.ui_dock4.label_rec_remain.setText('Rec: ')
+            self.ui_dock4.label_rec_remain.show()
+            self.ui_dock4.label_rec_time_timer = QtCore.QTimer()
+            self.ui_dock4.label_rec_time_timer.timeout.connect(self.update_rec_time)
+            self.ui_dock4.label_rec_time_timer.start(100)
+            self.ui_dock4.label_rec_remain.setStyleSheet("color: black")
+    
+    def update_rec_time(self):
+        if self.ui_dock4.label_rec_time_timer is None:
+            logging.warning('Why do you call me')
+            return
+        if (self.wav_writer_thread is None) or \
+           (self.wav_writer_thread.writer is None):
+            logging.warning('Nothing can be provided.')
+            return
+        t_rec = self.wav_writer_thread.writer.get_t()
+        t_rec_str = time_to_HHMMSSm(t_rec)
+        # calculate how far we are form 4GB limit, in terms of time
+        sz_4g_left = 3.99 * 2**30 - self.wav_writer_thread.writer.get_n_byte()
+        sz_per_sec = self.wav_writer_thread.writer.frame_bytes * self.wav_writer_thread.writer.sample_rate
+        t_4g_left = sz_4g_left / sz_per_sec
+        # get file system space left, TODO: query it less often, like every 10 sec
+        sav_dir = os.path.dirname(os.path.abspath(self.wav_save_path))
+        disk_usage = shutil.disk_usage(sav_dir)
+        t_disk_left = disk_usage.free / sz_per_sec
+        t_min_left = min(t_4g_left, t_disk_left)
+        t_left_str = time_to_HHMMSSm(t_min_left)
+        # time rec and time left
+        self.ui_dock4.label_rec_remain.setText('Rec: ' + t_rec_str + '  (left: ' + t_left_str + ')')
+
     def start_audio_saving(self):
-        self.stop_rec_btn.setEnabled(True)
-        self.start_rec_btn.setEnabled(False)
         # Ensure we have a file name anyway
+        self.wav_save_path = self.ui_dock4.lineEdit_wavpath.text()
         if (self.wav_save_path is None) or (self.wav_save_path == ''):
             # set file name by date and time
             now = datetime.datetime.now()
             self.wav_save_path = now.strftime("untitled_%Y-%m-%d_%H%M%S.wav")
-            self.file_path_edit.setText(self.wav_save_path)
+            self.ui_dock4.lineEdit_wavpath.setText(self.wav_save_path)
         # For setup the wav writer
         wav_saver_conf = {
             'wav_path': self.wav_save_path,
@@ -610,13 +718,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.wav_writer_thread._initilized.wait()
         print('Done.')
         if not self.wav_writer_thread.is_running():
-            self.start_rec_btn.setEnabled(True)
-            self.stop_rec_btn.setEnabled(False)
             self.simple_message_box(f"Failed to open file {self.wav_save_path}.")
+            return False
+        return True
     
     def stop_audio_saving(self):
-        self.start_rec_btn.setEnabled(True)
-        self.stop_rec_btn.setEnabled(False)
         self.wav_writer_thread.stop()
         self.wav_writer_thread.join()
         # pop up a message box saying the file is saved
@@ -653,6 +759,8 @@ class MainWindow(QtWidgets.QMainWindow):
     
     # TODO: annotate callbacks using decorator
     def update_graph(self, obj):
+        if not self.b_monitor_on:
+            return
         if not self.fps_lim.checkFPSAllow():
             return
         # usually called from main thread
@@ -666,6 +774,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def custom_close_event(self, event):
         self.rec_thread.b_run = False
         self.chunk_process_thread.b_run = False
+        if self.wav_writer_thread is not None:
+            self.wav_writer_thread.stop()
         event.accept()  # Accept the close event
 
     def take_screen_shot(self):

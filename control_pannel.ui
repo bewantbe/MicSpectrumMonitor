@@ -72,13 +72,6 @@
       </property>
      </widget>
     </item>
-    <item row="4" column="2" colspan="2">
-     <widget class="QLabel" name="label_rec_remain">
-      <property name="text">
-       <string>Rec: XX:XX:XX  (XX;XX:XX left)</string>
-      </property>
-     </widget>
-    </item>
     <item row="4" column="6" colspan="2">
      <widget class="QLabel" name="label_datetime">
       <property name="text">
@@ -154,6 +147,11 @@
       <item>
        <property name="text">
         <string>AD7606C</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>refresh list</string>
        </property>
       </item>
      </widget>
@@ -279,9 +277,28 @@
       </property>
      </spacer>
     </item>
+    <item row="4" column="2" colspan="4">
+     <widget class="QLabel" name="label_rec_remain">
+      <property name="text">
+       <string>Rec: XX:XX:XX  (XX;XX:XX left)</string>
+      </property>
+     </widget>
+    </item>
    </layout>
   </widget>
  </widget>
+ <tabstops>
+  <tabstop>comboBox_dev</tabstop>
+  <tabstop>comboBox_sr</tabstop>
+  <tabstop>lineEdit_ch</tabstop>
+  <tabstop>comboBox_ftlen</tabstop>
+  <tabstop>comboBox_nave</tabstop>
+  <tabstop>pushButton_mon</tabstop>
+  <tabstop>pushButton_screenshot</tabstop>
+  <tabstop>lineEdit_wavpath</tabstop>
+  <tabstop>toolButton_path</tabstop>
+  <tabstop>pushButton_rec</tabstop>
+ </tabstops>
  <resources/>
  <connections/>
 </ui>
