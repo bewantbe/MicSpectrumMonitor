@@ -89,13 +89,16 @@ Roadmap:
 * longer update time for remaining space for rec.
   - done
 * callback to monitoring/stop
-* Spectrogram plot log mode.
+  - done
 * callback to device
+  - refactor audio data pipeline
+  - full restart
 * callback to select channels
 * callback to sampling rate
 * callback to FFT length
 * callback to averaging
 * Test AD7606C
+* Spectrogram plot log mode.
 * Add show FPS, ref to the fps counter design in pyqtgraph example
 * link frequency axis of spectrum and spectrogram
 * consider support RF64 format for wav file, e.g.
@@ -471,7 +474,7 @@ def pretty_num_unit(v, n_prec = 4):
 class AnalyzerParameters:
     def __init__(self):
         self._ana_conf_keys = [
-            'size_chunk', 'n_ave', 'use_dBA']
+            'size_chunk', 'size_hop', 'n_ave', 'use_dBA']
 
     def load_device_default(self, device_name):
         if device_name == 'mic':
@@ -549,6 +552,7 @@ class AnalyzerParameters:
         self.data_queue_max_size = 1000
         # for FFT analyzer
         self.size_chunk   = 1024
+        self.size_hop     = self.size_chunk // 2
         self.n_ave        = 1
         self.use_dBA      = False
         # TODO: calibration_path
@@ -576,6 +580,7 @@ class AnalyzerParameters:
         self.data_queue_max_size = 1000
         # for FFT analyzer
         self.size_chunk   = 1024
+        self.size_hop     = self.size_chunk // 2
         self.n_ave        = 1
         self.use_dBA      = False
         self._adc_conf_keys = [
@@ -722,10 +727,86 @@ class AudioSaverManager:
         # pop up a message box saying the file is saved
         #self.main_wnd.simple_message_box(f"The recording is saved to {self.wav_save_path}.")
     
+class AudioPipeline(pg.QtCore.QObject):
+    """Holding audio pipeline for the recorder."""
+
+    # Ref. https://www.pythonguis.com/tutorials/pyqt6-signals-slots-events/
+    # See pyqtgraph's example console_exception_inspection.py.
+    signal_update_graph = pg.QtCore.Signal(object)
+
+    def __init__(self):
+        super().__init__()   # for QObject and the signal
+        pg.QtCore.QObject.__init__(self)
+
+    def init(self, ana_param, cb_update_graph, audio_saver_manager):
+        self.audio_saver_manager = audio_saver_manager
+        adc_conf = ana_param.get_adc_conf()
+
+        ## setup data gernerator and analyzer
+        # Data flow: mic source -> buf_queue -> process{analyzer, signal to plot}
+        self.buf_queue = queue.Queue(ana_param.data_queue_max_size)
+        self.rec_thread = recThread('recorder', self.buf_queue, adc_conf)
+        # TODO: allow recThread to accept multiple queues (like pipelines) for multiple downstreams
+        #       plan two: in sampleChunkThread, we setup another callback for receiving raw data
+
+        ana_conf = ana_param.get_ana_conf()
+
+        # init FFT Analyzer
+        self.analyzer_data = analyzerData(
+            ana_conf['size_chunk'], adc_conf['sample_rate'], ana_conf['n_ave'],
+            len(ana_param.channel_selected))
+        self.analyzer_data.use_dBA = ana_conf['use_dBA']
+        
+        # signals for calling self.proc_analysis_plot
+        self.signal_update_graph.connect(cb_update_graph,
+                                         pg.QtCore.Qt.ConnectionType.QueuedConnection)
+
+        sz_chunk = ana_conf['size_chunk']
+        sz_hop   = ana_conf['size_hop']
+        self.chunk_process_thread = sampleChunkThread('chunking',
+            self.proc_analysis_plot, self.buf_queue,
+            ana_param.channel_selected,
+            sz_chunk, sz_hop,
+            callback_raw = self.proc_orig_data)
+    
+    def is_device_on(self):
+        # Test if the mic/ADC is on
+        if self.rec_thread is None:
+            return False
+        return self.rec_thread.b_run
+
+    def start(self, cb_update_rms, cb_update_spectrum):
+        self.cb_update_rms = cb_update_rms
+        self.cb_update_spectrum = cb_update_spectrum
+        self.rec_thread.start()
+        self.chunk_process_thread.start()
+
+    def close(self):
+        self.rec_thread.b_run = False
+        self.chunk_process_thread.b_run = False
+
+    def proc_orig_data(self, data_chunk):
+        ## usually called from data processing thread
+        # if we are ready to write data, then do it (but
+        # do not cost too much CPU/IO time, let the other thread to do the actual work)
+        if self.audio_saver_manager.is_rec_on():
+            self.audio_saver_manager.feed_data(data_chunk)
+
+    def proc_analysis_plot(self, data_chunk):
+        ## usually called from data processing thread
+        # analysing
+        self.analyzer_data.put(data_chunk)
+        fqs = self.analyzer_data.fqs
+        rms_db = self.analyzer_data.get_RMS_dB()
+        volt = self.analyzer_data.get_volt()
+        spectrum_db = self.analyzer_data.get_spectrum_dB()
+        self.cb_update_rms(rms_db)
+        self.cb_update_spectrum(spectrum_db)
+        # plot
+        self.signal_update_graph.emit((rms_db, volt, fqs, spectrum_db))
+
 class MainWindow(QtWidgets.QMainWindow):
     """Main Window for monitoring and recording the Mic/ADC signals."""
-
-    signal_update_graph = pg.QtCore.Signal(object)
 
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
@@ -784,15 +865,11 @@ class MainWindow(QtWidgets.QMainWindow):
         ui_dock4.pushButton_mon.clicked.connect(self.start_stop_monitoring)
         ui_dock4.pushButton_screenshot.clicked.connect(self.take_screen_shot)
 
-        self.ana_param = AnalyzerParameters()
-
-        # setup audio input
+        # setup audio input and basic parameters
         pcm_device = 'mic'
+        self.ana_param = AnalyzerParameters()
         self.ana_param.load_device_default(pcm_device)
-        adc_conf = self.ana_param.get_adc_conf()
-
-        # put data on the GUI
-        self.ana_param.ui_connect(self)
+        self.ana_param.ui_connect(self)                  # put data on the GUI
 
         # audio saver relies on ana_param
         self.audio_saver_manager = AudioSaverManager(self)
@@ -803,58 +880,34 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.show()
 
-        ## setup data gernerator and analyzer
-        # Data flow: mic source -> buf_queue -> process{analyzer, signal to plot}
-        self.buf_queue = queue.Queue(self.ana_param.data_queue_max_size)
-        self.rec_thread = recThread('recorder', self.buf_queue, adc_conf)
-        # TODO: allow recThread to accept multiple queues (like pipelines) for multiple downstreams
-        #       plan two: in sampleChunkThread, we setup another callback for receiving raw data
+        self.fps_lim = FPSLimiter(30)        # for limiting update_graph
 
-        ana_conf = self.ana_param.get_ana_conf()
-
-        # init FFT Analyzer
-        self.analyzer_data = analyzerData(
-            ana_conf['size_chunk'], adc_conf['sample_rate'], ana_conf['n_ave'],
-            len(self.ana_param.channel_selected))
-        self.analyzer_data.use_dBA = ana_conf['use_dBA']
-        
-        # signals for calling self.proc_analysis_plot
-        self.signal_update_graph.connect(self.update_graph,
-                                         pg.QtCore.Qt.ConnectionType.QueuedConnection)
-        self.fps_lim = FPSLimiter(30)
-
-        sz_chunk = ana_conf['size_chunk']
-        sz_hop = ana_conf['size_chunk'] // 2
-        self.chunk_process_thread = sampleChunkThread('chunking',
-            self.proc_analysis_plot, self.buf_queue,
-            self.ana_param.channel_selected,
-            sz_chunk, sz_hop,
-            callback_raw = self.proc_orig_data)
+        # core audio pipeline is managed here
+        self.audio_pipeline = AudioPipeline()
+        self.audio_pipeline.init(self.ana_param, self.update_graph, self.audio_saver_manager)
 
         ## setup plots
-        self.waveform_plot.init_param(self.analyzer_data, sz_hop)  # TODO: replace here analyzer_data with ana_param
+        sz_hop = self.ana_param.size_hop
+        analyzer_data = self.audio_pipeline.analyzer_data
+        self.waveform_plot.init_param(analyzer_data, sz_hop)
         self.waveform_plot.config_plot()
-        self.spectrum_plot.init_param(self.analyzer_data, sz_hop)
+        self.spectrum_plot.init_param(analyzer_data, sz_hop)
         self.spectrum_plot.config_plot()
-        self.rms_plot.init_param(self.analyzer_data, sz_hop)
+        self.rms_plot.init_param(analyzer_data, sz_hop)
         self.rms_plot.config_plot()
-        self.spectrogram_plot.init_param(self.analyzer_data, sz_hop)
+        self.spectrogram_plot.init_param(analyzer_data, sz_hop)
         self.spectrogram_plot.config_plot()
 
         self.b_monitor_on = True
 
-        self.rec_thread.start()
-        self.chunk_process_thread.start()
-
-    def is_device_on(self):
-        # Test if the mic/ADC is on
-        if self.rec_thread is None:
-            return False
-        return self.rec_thread.b_run
+        self.audio_pipeline.start(
+            self.rms_plot.feed_rms,
+            self.spectrogram_plot.feed_spectrum
+        )
 
     def is_monitoring_on(self):
         # Test if the monitor is on
-        if self.chunk_process_thread is None:
+        if not self.audio_pipeline.is_device_on():
             return False
         return self.b_monitor_on
 
@@ -880,26 +933,6 @@ class MainWindow(QtWidgets.QMainWindow):
         msg.setStandardButtons(PyQt6.QtWidgets.QMessageBox.StandardButton.Ok)
         msg.exec()
     
-    def proc_orig_data(self, data_chunk):
-        ## usually called from data processing thread
-        # if we are ready to write data, then do it (but
-        # do not cost too much CPU/IO time, let the other thread to do the actual work)
-        if self.audio_saver_manager.is_rec_on():
-            self.audio_saver_manager.feed_data(data_chunk)
-
-    def proc_analysis_plot(self, data_chunk):
-        ## usually called from data processing thread
-        # analysing
-        self.analyzer_data.put(data_chunk)
-        fqs = self.analyzer_data.fqs
-        rms_db = self.analyzer_data.get_RMS_dB()
-        volt = self.analyzer_data.get_volt()
-        spectrum_db = self.analyzer_data.get_spectrum_dB()
-        self.rms_plot.feed_rms(rms_db)
-        self.spectrogram_plot.feed_spectrum(spectrum_db)
-        # plot
-        self.signal_update_graph.emit((rms_db, volt, fqs, spectrum_db))
-    
     # TODO: annotate callbacks using decorator
     def update_graph(self, obj):
         if not self.b_monitor_on:
@@ -915,8 +948,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.spectrogram_plot.update()
     
     def custom_close_event(self, event):
-        self.rec_thread.b_run = False
-        self.chunk_process_thread.b_run = False
+        self.audio_pipeline.close()
         self.audio_saver_manager.close()
         event.accept()  # Accept the close event
 
