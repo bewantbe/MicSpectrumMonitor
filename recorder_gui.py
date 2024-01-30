@@ -87,14 +87,15 @@ Roadmap:
 * Add units for axis, and get scale prefix, set grid for some plot.
   - done
 * longer update time for remaining space for rec.
-* Test AD7606C
+  - done
+* callback to monitoring/stop
 * Spectrogram plot log mode.
 * callback to device
-* callback to monitoring/stop
 * callback to select channels
 * callback to sampling rate
 * callback to FFT length
 * callback to averaging
+* Test AD7606C
 * Add show FPS, ref to the fps counter design in pyqtgraph example
 * link frequency axis of spectrum and spectrogram
 * consider support RF64 format for wav file, e.g.
@@ -361,7 +362,7 @@ class RMSPlot:
     def config_plot(self):
         self.plot_widget.getPlotItem().setLimits(
             #xMin=0, xMax=self.t_duration,
-            yMin=self.dB_min, yMax=self.dB_max)
+            yMin=self.dB_min, yMax=self.dB_max + 5.0)
         self.plot_widget.setLabel('bottom', units='second')
         self.plot_widget.setLabel('left', units='dB')
         self.plot_widget.showGrid(x=True, y=True)
@@ -602,7 +603,7 @@ class AudioSaverManager:
 
     def open_file_dialog(self):
         self.wav_save_path = QtWidgets.QFileDialog.getSaveFileName()[0]
-        self.file_path_edit.setText(self.wav_save_path)
+        self.ui_dock4.lineEdit_wavpath.setText(self.wav_save_path)
 
     def is_rec_on(self):
         # Test if the audio saving (to WAV) is on
@@ -780,46 +781,8 @@ class MainWindow(QtWidgets.QMainWindow):
         ui_dock4.setupUi(self.dock4)
         self.ui_dock4 = ui_dock4
 
-        """
-        widg4 = pg.LayoutWidget()
-        self.widg4 = widg4
-
-        label = QtWidgets.QLabel("Set the parameters for recording:")
-
-        file_path_edit = QtWidgets.QLineEdit("", placeholderText="File path for saving the recording")
-        self.wav_save_path = None
-        self.file_path_edit = file_path_edit
-
-        file_choose_btn = QtWidgets.QPushButton('Browse')
-        file_choose_btn.clicked.connect(self.open_file_dialog)
-        self.file_choose_btn = file_choose_btn
-
-        start_mon_btn = QtWidgets.QPushButton('Monitoring')
-        self.start_mon_btn = start_mon_btn
-
-        win_screenshot_btn = QtWidgets.QPushButton('Window-shot')
-        win_screenshot_btn.clicked.connect(self.take_screen_shot)
-        self.win_screenshot_btn = win_screenshot_btn
-
-        start_rec_btn = QtWidgets.QPushButton('Start recording')
-        start_rec_btn.clicked.connect(self.start_audio_saving)
-        self.start_rec_btn = start_rec_btn
-
-        stop_rec_btn  = QtWidgets.QPushButton('Stop recording')
-        stop_rec_btn.clicked.connect(self.stop_audio_saving)
-        stop_rec_btn.setEnabled(False)
-        self.stop_rec_btn = stop_rec_btn
-
-        # layout
-        widg4.addWidget(label, row=0, col=0)
-        widg4.addWidget(file_path_edit, row=1, col=0, colspan=2)
-        widg4.addWidget(file_choose_btn, row=1, col=2)
-        widg4.addWidget(start_mon_btn, row=2, col=0)
-        widg4.addWidget(win_screenshot_btn, row=2, col=1)
-        widg4.addWidget(start_rec_btn, row=2, col=2)
-        widg4.addWidget(stop_rec_btn, row=2, col=3)
-        dock4.addWidget(widg4)
-        """
+        ui_dock4.pushButton_mon.clicked.connect(self.start_stop_monitoring)
+        ui_dock4.pushButton_screenshot.clicked.connect(self.take_screen_shot)
 
         self.ana_param = AnalyzerParameters()
 
@@ -894,6 +857,20 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.chunk_process_thread is None:
             return False
         return self.b_monitor_on
+
+    def start_stop_monitoring(self):
+        if self.is_monitoring_on():
+            # stop the monitoring
+            self.b_monitor_on = False
+            # set the button text to 'Start monitoring', make background grey
+            self.ui_dock4.pushButton_mon.setText('Start monitoring')
+            self.ui_dock4.pushButton_mon.setStyleSheet("background-color: grey")
+        else:
+            # start the monitoring
+            self.b_monitor_on = True
+            # set the button text to 'Stop monitoring', make background red
+            self.ui_dock4.pushButton_mon.setText('Stop monitoring')
+            self.ui_dock4.pushButton_mon.setStyleSheet("background-color: white")
 
     def simple_message_box(self, msg_text):
         msg = QtWidgets.QMessageBox()
