@@ -477,7 +477,7 @@ class AnalyzerParameters:
             'size_chunk', 'size_hop', 'n_ave', 'use_dBA']
 
     def load_device_default(self, device_name):
-        if device_name == 'mic':
+        if (device_name == 'mic') or (device_name == 'System mic'):
             self.load_mic_default()
         elif device_name == 'AD7606C':
             self.load_AD7606C_default()
@@ -486,35 +486,39 @@ class AnalyzerParameters:
 
     def ui_connect(self, main_wnd):
         self.main_wnd = main_wnd
+        self.update_to_ui(self.main_wnd.ui_dock4)
         # first update
         self.update_channel_selected()
         # auto update the channel selected
         self.main_wnd.ui_dock4.lineEdit_ch.textChanged.connect(self.update_channel_selected)
-        self.update_to_ui()
     
-    def update_to_ui(self):
+    def update_to_ui(self, ui):
         # if we have sampler_id defined, means we are initialized
         if not hasattr(self, 'sampler_id'):
             return
-        # TODO: update the UI
-        ui = self.main_wnd.ui_dock4
+        # current device
         ui.comboBox_dev.setCurrentText(self.device_name)
+        # sample rates allowed for the device
         ui.comboBox_sr.clear()
         ui.comboBox_sr.addItems(self.dic_sample_rate.keys())
         ui.comboBox_sr.setCurrentText(pretty_num_unit(self.sample_rate) + 'Hz')
+        # channels selected
+        st_chs = ','.join([str(c+1) for c in self.channel_selected])
+        ui.lineEdit_ch.setText(st_chs)
 
     def update_channel_selected(self):
-        channel_selected_text = self.main_wnd.ui_dock4.lineEdit_ch.text()
+        line_edit_ch = self.main_wnd.ui_dock4.lineEdit_ch
+        channel_selected_text = line_edit_ch.text()
         try:
             # note: channel index starts from 0 in the code, but starts from 1 in the UI
             chs = [int(c) - 1 for c in channel_selected_text.split(',')]
         except ValueError:
             # set text box to light-red background
-            self.main_wnd.ui_dock4.lineEdit_ch.setStyleSheet("background-color: LightSalmon")
+            line_edit_ch.setStyleSheet("background-color: LightSalmon")
             return
         else:
             # set normal background
-            self.main_wnd.ui_dock4.lineEdit_ch.setStyleSheet("background-color: white")
+            line_edit_ch.setStyleSheet("background-color: white")
         self.channel_selected = chs
 
     def get_adc_conf(self):
@@ -548,7 +552,7 @@ class AnalyzerParameters:
             '8kHz': 8000,
         }
         # pipeline
-        self.channel_selected = [1, 2]
+        self.channel_selected = [0, 1]
         self.data_queue_max_size = 1000
         # for FFT analyzer
         self.size_chunk   = 1024
@@ -576,7 +580,7 @@ class AnalyzerParameters:
             '500kHz': 500000,
         }
         # pipeline
-        self.channel_selected = [1, 2]
+        self.channel_selected = [0, 1]
         self.data_queue_max_size = 1000
         # for FFT analyzer
         self.size_chunk   = 1024
@@ -769,6 +773,9 @@ class AudioPipeline(pg.QtCore.QObject):
             sz_chunk, sz_hop,
             callback_raw = self.proc_orig_data)
     
+    def reinit(self, ana_param, cb_update_graph, audio_saver_manager):
+        print('here')
+    
     def is_device_on(self):
         # Test if the mic/ADC is on
         if self.rec_thread is None:
@@ -865,6 +872,9 @@ class MainWindow(QtWidgets.QMainWindow):
         ui_dock4.pushButton_mon.clicked.connect(self.start_stop_monitoring)
         ui_dock4.pushButton_screenshot.clicked.connect(self.take_screen_shot)
 
+        # changing device
+        self.ui_dock4.comboBox_dev.activated.connect(self.on_combobox_dev_activated)
+
         # setup audio input and basic parameters
         pcm_device = 'mic'
         self.ana_param = AnalyzerParameters()
@@ -904,6 +914,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self.rms_plot.feed_rms,
             self.spectrogram_plot.feed_spectrum
         )
+
+    def on_combobox_dev_activated(self, index):
+        dev_name = self.ui_dock4.comboBox_dev.itemText(index)
+        logging.info(f'Device: Item[{index}] = {dev_name} was selected')
+        if dev_name == 'refresh list' or dev_name == 'none':
+            return
+        self.ana_param.load_device_default(dev_name)
+        self.ana_param.update_to_ui(self.ui_dock4)
+        self.audio_pipeline.reinit(self.ana_param, self.update_graph, self.audio_saver_manager)
 
     def is_monitoring_on(self):
         # Test if the monitor is on
