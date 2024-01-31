@@ -468,6 +468,14 @@ class SpectrogramPlot:
             self.img_item.setImage(spam_bmp,
                 rect=[0, 0, self.spam_bmp_t_duration, self.max_freq])
 
+def simple_message_box(msg_text):
+    msg = QtWidgets.QMessageBox()
+    #msg.setIcon(QtWidgets.QMessageBox.Information)
+    msg.setText(msg_text)
+    msg.setWindowTitle("Recording saved")
+    msg.setStandardButtons(PyQt6.QtWidgets.QMessageBox.StandardButton.Ok)
+    msg.exec()
+
 # copy from M3F20xm.py
 def pretty_num_unit(v, n_prec = 4):
     # print 100000 as 100k, etc.
@@ -501,14 +509,6 @@ class AnalyzerParameters:
             self.load_AD7606C_default()
         else:
             raise ValueError(f'Unknown device name "{device_name}"')
-
-    def ui_connect(self, main_wnd):
-        self.main_wnd = main_wnd
-        self.update_to_ui(self.main_wnd.ui_dock4)
-        # first update
-        self.update_channel_selected()
-        # auto update the channel selected
-        self.main_wnd.ui_dock4.lineEdit_ch.textChanged.connect(self.update_channel_selected)
     
     def update_to_ui(self, ui):
         # if we have sampler_id defined, means we are initialized
@@ -524,8 +524,8 @@ class AnalyzerParameters:
         st_chs = ','.join([str(c+1) for c in self.channel_selected])
         ui.lineEdit_ch.setText(st_chs)
 
-    def update_channel_selected(self):
-        line_edit_ch = self.main_wnd.ui_dock4.lineEdit_ch
+    def update_channel_by_ui(self, line_edit_ch):
+        #line_edit_ch = self.main_wnd.ui_dock4.lineEdit_ch
         channel_selected_text = line_edit_ch.text()
         try:
             # note: channel index starts from 0 in the code, but starts from 1 in the UI
@@ -609,24 +609,26 @@ class AnalyzerParameters:
             'sampler_id', 'sample_rate', 'periodsize']
 
 class AudioSaverManager:
-    def __init__(self, main_wnd):
-        self.main_wnd = main_wnd
-        self.ui_dock4 = main_wnd.ui_dock4
-        self.ana_param = main_wnd.ana_param
+    """ Manage the UI related to audio saving and manage wav saver."""
+    def __init__(self):
         ## for audio saving thread
         # Data flow: process(chunk_process_thread) -> wav_data_queue -> wav_writer
         self.wav_data_queue = None
         self.wav_writer_thread = None
-        self.ui_dock4.label_rec_time_timer = None
         # utilizer
         self._disk_space_update_interval = 10.0
         self._last_update_disk_space_left = time.time() - self._disk_space_update_interval
         self._disk_space_left = float('inf')
 
-    def init_ui(self):
+    def connect_button_events(self, ui_dock4):
+        self.ui_dock4 = ui_dock4
+        self.ui_dock4.label_rec_time_timer = None
         self.ui_dock4.pushButton_rec.clicked.connect(self.start_stop_saving)
         self.ui_dock4.toolButton_path.clicked.connect(self.open_file_dialog)
         self.wav_save_path = None
+
+    def update_wav_param(self, ana_param):
+        self.ana_param = ana_param
 
     def open_file_dialog(self):
         self.wav_save_path = QtWidgets.QFileDialog.getSaveFileName()[0]
@@ -639,6 +641,7 @@ class AudioSaverManager:
         return self.wav_writer_thread.is_running()
 
     def feed_data(self, data_chunk):
+        # might be called from other thread
         self.wav_data_queue.put(data_chunk)   # TODO: should we copy the data?
 
     def close(self):
@@ -739,7 +742,7 @@ class AudioSaverManager:
         self.wav_writer_thread._initilized.wait()
         print('Done.')
         if not self.wav_writer_thread.is_running():
-            self.main_wnd.simple_message_box(f"Failed to open file {self.wav_save_path}.")
+            simple_message_box(f"Failed to open file {self.wav_save_path}.")
             return False
         return True
     
@@ -747,21 +750,18 @@ class AudioSaverManager:
         self.wav_writer_thread.stop()
         self.wav_writer_thread.join()
         # pop up a message box saying the file is saved
-        #self.main_wnd.simple_message_box(f"The recording is saved to {self.wav_save_path}.")
+        #simple_message_box(f"The recording is saved to {self.wav_save_path}.")
     
-class AudioPipeline(pg.QtCore.QObject):
+class AudioPipeline():
     """Holding audio pipeline for the recorder."""
 
-    # Ref. https://www.pythonguis.com/tutorials/pyqt6-signals-slots-events/
-    # See pyqtgraph's example console_exception_inspection.py.
-    signal_update_graph = pg.QtCore.Signal(object)
-
     def __init__(self):
-        super().__init__()   # for QObject and the signal
-        pg.QtCore.QObject.__init__(self)
+        #super().__init__()   # for QObject and the signal
+        #pg.QtCore.QObject.__init__(self)
+        self.rec_thread = None
 
-    def init(self, ana_param, cb_update_graph, audio_saver_manager):
-        self.audio_saver_manager = audio_saver_manager
+    def init(self, ana_param):
+        """Note: allow re-enter after full close."""
         adc_conf = ana_param.get_adc_conf()
 
         ## setup data gernerator and analyzer
@@ -779,10 +779,6 @@ class AudioPipeline(pg.QtCore.QObject):
             len(ana_param.channel_selected))
         self.analyzer_data.use_dBA = ana_conf['use_dBA']
         
-        # signals for calling self.proc_analysis_plot
-        self.signal_update_graph.connect(cb_update_graph,
-                                         pg.QtCore.Qt.ConnectionType.QueuedConnection)
-
         sz_chunk = ana_conf['size_chunk']
         sz_hop   = ana_conf['size_hop']
         self.chunk_process_thread = sampleChunkThread('chunking',
@@ -791,27 +787,27 @@ class AudioPipeline(pg.QtCore.QObject):
             sz_chunk, sz_hop,
             callback_raw = self.proc_orig_data)
     
-    def reinit(self, ana_param, cb_update_graph, audio_saver_manager):
-        print('here')
-    
     def is_device_on(self):
         # Test if the mic/ADC is on
         if self.rec_thread is None:
             return False
         return self.rec_thread.b_run
 
-    def start(self, cb_update_rms, cb_update_spectrum):
+    def start(self, audio_saver_manager, cb_update_rms, cb_update_spectrum, cb_plot):
+        self.audio_saver_manager = audio_saver_manager
         self.cb_update_rms = cb_update_rms
         self.cb_update_spectrum = cb_update_spectrum
+        self.cb_plot = cb_plot
         self.rec_thread.start()
         self.chunk_process_thread.start()
 
     def close(self, wait = False):
         self.rec_thread.b_run = False
         self.chunk_process_thread.b_run = False
-        if wait:
-            self.rec_thread.join()
-            self.chunk_process_thread.join()
+        if not wait:
+            return
+        self.rec_thread.join()
+        self.chunk_process_thread.join()
 
     def proc_orig_data(self, data_chunk):
         ## usually called from data processing thread
@@ -831,10 +827,15 @@ class AudioPipeline(pg.QtCore.QObject):
         self.cb_update_rms(rms_db)
         self.cb_update_spectrum(spectrum_db)
         # plot
-        self.signal_update_graph.emit((rms_db, volt, fqs, spectrum_db))
+        self.cb_plot((rms_db, volt, fqs, spectrum_db))
+        
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main Window for monitoring and recording the Mic/ADC signals."""
+
+    # Ref. https://www.pythonguis.com/tutorials/pyqt6-signals-slots-events/
+    # See pyqtgraph's example console_exception_inspection.py.
+    graph_data_updated = pg.QtCore.Signal(object)
 
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
@@ -890,32 +891,46 @@ class MainWindow(QtWidgets.QMainWindow):
         ui_dock4.setupUi(self.dock4)
         self.ui_dock4 = ui_dock4
 
-        ui_dock4.pushButton_mon.clicked.connect(self.start_stop_monitoring)
-        ui_dock4.pushButton_screenshot.clicked.connect(self.take_screen_shot)
-
-        # changing device
-        self.ui_dock4.comboBox_dev.activated.connect(self.on_combobox_dev_activated)
-
-        # setup audio input and basic parameters
-        pcm_device = 'mic'
+        # basic parameters holder
         self.ana_param = AnalyzerParameters()
-        self.ana_param.load_device_default(pcm_device)
-        self.ana_param.ui_connect(self)                  # put data on the GUI
+        self.audio_saver_manager = AudioSaverManager()
+        # core audio pipeline is managed here
+        self.audio_pipeline = AudioPipeline()
 
-        # audio saver relies on ana_param
-        self.audio_saver_manager = AudioSaverManager(self)
-        self.audio_saver_manager.init_ui()
-
-        # Connect the custom closeEvent
+        # connect monitor button
+        ui_dock4.pushButton_mon.clicked.connect(self.start_stop_monitoring)
+        # connect screenshot button
+        ui_dock4.pushButton_screenshot.clicked.connect(self.take_screen_shot)
+        # connect device selection comboBox
+        self.ui_dock4.comboBox_dev.activated.connect(self.on_combobox_dev_activated)
+        # connect channel text box (and sanity check)
+        self.ui_dock4.lineEdit_ch.textChanged.connect(
+            lambda: self.ana_param.update_channel_by_ui(self.ui_dock4.lineEdit_ch))
+        # connect recording related buttons and text boxes
+        self.audio_saver_manager.connect_button_events(self.ui_dock4)
+        # connect plot event
+        self.graph_data_updated.connect(self.update_graph, 
+                                        pg.QtCore.Qt.ConnectionType.QueuedConnection)
+        # connect the custom closeEvent
         self.closeEvent = self.custom_close_event
 
         self.show()
 
-        self.fps_lim = FPSLimiter(30)        # for limiting update_graph
+        self.fps_limiter = FPSLimiter(30)        # for limiting update_graph
 
-        # core audio pipeline is managed here
-        self.audio_pipeline = AudioPipeline()
-        self.audio_pipeline.init(self.ana_param, self.update_graph, self.audio_saver_manager)
+        default_device_idx = 0
+        self.on_combobox_dev_activated(default_device_idx)
+
+    def stop_data_pipeline(self):
+        if self.audio_pipeline.is_device_on():
+            self.audio_pipeline.close(wait=True)
+
+    def start_data_pipeline(self, dev_name):
+        # start new device
+        self.ana_param.load_device_default(dev_name)
+        self.ana_param.update_to_ui(self.ui_dock4)
+        self.audio_saver_manager.update_wav_param(self.ana_param)
+        self.audio_pipeline.init(self.ana_param)
 
         ## setup plots
         sz_hop = self.ana_param.size_hop
@@ -932,24 +947,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.b_monitor_on = True
 
         self.audio_pipeline.start(
+            self.audio_saver_manager,
             self.rms_plot.feed_rms,
-            self.spectrogram_plot.feed_spectrum
+            self.spectrogram_plot.feed_spectrum,
+            self.graph_data_updated.emit
         )
-
-    def restart_audio_pipeline(self, dev_name):
-        # stop old device
-        self.audio_pipeline.close(wait = True)
-        # start new device
-        self.ana_param.load_device_default(dev_name)
-        self.ana_param.update_to_ui(self.ui_dock4)
-        self.audio_pipeline.reinit(self.ana_param, self.update_graph, self.audio_saver_manager)
 
     def on_combobox_dev_activated(self, index):
         dev_name = self.ui_dock4.comboBox_dev.itemText(index)
-        logging.info(f'Device: Item[{index}] = {dev_name} was selected')
+        logging.info(f'Device: Item[{index}] = "{dev_name}" was selected')
         if dev_name == 'refresh list' or dev_name == 'none':
             return
-        self.restart_audio_pipeline(dev_name)
+        self.stop_data_pipeline()
+        self.start_data_pipeline(dev_name)
 
     def is_monitoring_on(self):
         # Test if the monitor is on
@@ -971,19 +981,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ui_dock4.pushButton_mon.setText('Stop monitoring')
             self.ui_dock4.pushButton_mon.setStyleSheet("background-color: white")
 
-    def simple_message_box(self, msg_text):
-        msg = QtWidgets.QMessageBox()
-        #msg.setIcon(QtWidgets.QMessageBox.Information)
-        msg.setText(msg_text)
-        msg.setWindowTitle("Recording saved")
-        msg.setStandardButtons(PyQt6.QtWidgets.QMessageBox.StandardButton.Ok)
-        msg.exec()
-    
     # TODO: annotate callbacks using decorator
     def update_graph(self, obj):
         if not self.b_monitor_on:
             return
-        if not self.fps_lim.checkFPSAllow():
+        if not self.fps_limiter.checkFPSAllow():
             return
         # usually called from main thread
         rms_db, volt, fqs, spectrum_db = obj
@@ -994,7 +996,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.spectrogram_plot.update()
     
     def custom_close_event(self, event):
-        self.audio_pipeline.close()
+        # TODO: disable the recorder first
+        self.audio_pipeline.close(wait=False)
         self.audio_saver_manager.close()
         event.accept()  # Accept the close event
 
