@@ -92,9 +92,12 @@ Roadmap:
   - done
 * callback to device
   - refactor audio data pipeline
+    + done
   - full restart
-* callback to select channels
+    + done
 * callback to sampling rate
+    + done
+* callback to select channels
 * callback to FFT length
 * callback to averaging
 * Test AD7606C
@@ -903,6 +906,8 @@ class MainWindow(QtWidgets.QMainWindow):
         ui_dock4.pushButton_screenshot.clicked.connect(self.take_screen_shot)
         # connect device selection comboBox
         self.ui_dock4.comboBox_dev.activated.connect(self.on_combobox_dev_activated)
+        # connect sample rate comboBox
+        self.ui_dock4.comboBox_sr.activated.connect(self.on_combobox_sr_activated)
         # connect channel text box (and sanity check)
         self.ui_dock4.lineEdit_ch.textChanged.connect(
             lambda: self.ana_param.update_channel_by_ui(self.ui_dock4.lineEdit_ch))
@@ -925,10 +930,14 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.audio_pipeline.is_device_on():
             self.audio_pipeline.close(wait=True)
 
-    def start_data_pipeline(self, dev_name):
+    def start_data_pipeline(self, dev_name = None):
         # start new device
-        self.ana_param.load_device_default(dev_name)
-        self.ana_param.update_to_ui(self.ui_dock4)
+        if dev_name is not None:
+            self.ana_param.load_device_default(dev_name)
+            self.ana_param.update_to_ui(self.ui_dock4)
+        else:
+            # assume ana_param is ready (modified in the UI)
+            pass
         self.audio_saver_manager.update_wav_param(self.ana_param)
         self.audio_pipeline.init(self.ana_param)
 
@@ -960,6 +969,15 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self.stop_data_pipeline()
         self.start_data_pipeline(dev_name)
+
+    def on_combobox_sr_activated(self, index):
+        sr_text = self.ui_dock4.comboBox_sr.itemText(index)
+        logging.info(f'Sample rate: Item[{index}] = "{sr_text}" was selected')
+        sr = self.ana_param.dic_sample_rate[sr_text]
+        self.ana_param.sample_rate = sr
+        # full restart. TODO: allow partial restart
+        self.stop_data_pipeline()
+        self.start_data_pipeline()
 
     def is_monitoring_on(self):
         # Test if the monitor is on
