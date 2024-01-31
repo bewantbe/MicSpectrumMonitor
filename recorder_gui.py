@@ -235,12 +235,12 @@ class WaveformPlot:
     def init_to_widget(self):
         #dock1.hideTitleBar()
         plot_widget = pg.PlotWidget(title="Waveform")
-        plot_item = plot_widget.plot(
+        plot_data_item = plot_widget.plot(
             np.random.normal(size=100),
             name = 'ch1')
         plot_widget.getPlotItem().getAxis('left').setWidth(50)
         self.plot_widget = plot_widget
-        self.plot_items = [plot_item]
+        self.plot_data_items = [plot_data_item]
         return plot_widget
 
     def init_param(self, analyzer, sz_hop):
@@ -248,17 +248,20 @@ class WaveformPlot:
         self.sz_hop = sz_hop              # overlap = sz_chunk - sz_hop
         self.n_channel = analyzer.n_channel
         self.lut = GetColorMapLut(self.n_channel)
-        self.plot_items[0].setPen(
-            self.lut[0]
-            #pen = pg.mkPen(color=(i, self.n_channel), width=1),
-            #pen = (i, self.n_channel),
-        )
+        # allow re-init by remove old plots
+        if len(self.plot_data_items) > 1:
+            # remove old plots
+            for i in range(1, len(self.plot_data_items)):
+                self.plot_widget.removeItem(self.plot_data_items[i])
+            self.plot_data_items = self.plot_data_items[0:1]
+        # set plots for each channel
+        self.plot_data_items[0].setPen(self.lut[0])
         for i in range(1, self.n_channel):
             pl = self.plot_widget.plot(
                 np.random.normal(size=100),
                 pen = self.lut[i],
                 name = f'ch{i+1}')
-            self.plot_items.append(pl)
+            self.plot_data_items.append(pl)
 
     def config_plot(self):
         #self.plot_widget.getPlotItem().setLimits(xMin=-1, xMax=self.sz_chunk)
@@ -272,7 +275,7 @@ class WaveformPlot:
 
     def update(self, volt):
         for i in range(self.n_channel):
-            self.plot_items[i].setData(volt[:,i])
+            self.plot_data_items[i].setData(volt[:,i])
 
 class SpectrumPlot:
     def __init__(self):
@@ -281,14 +284,14 @@ class SpectrumPlot:
     def init_to_widget(self):
         #dock2.hideTitleBar()
         plot_widget = pg.PlotWidget()
-        plot_item = plot_widget.plot(
+        plot_data_item = plot_widget.plot(
             np.random.normal(size=100),
             name = 'ch1')
         plot_widget.setLabel('left', units='dB')
         plot_widget.setLabel('bottom', units='Hz')
         plot_widget.showGrid(x=True, y=True)
         self.plot_widget = plot_widget
-        self.plot_items = [plot_item]
+        self.plot_data_items = [plot_data_item]
         return plot_widget
 
     def init_param(self, analyzer, sz_hop):
@@ -299,18 +302,25 @@ class SpectrumPlot:
         self.n_freq = len(self.x_freq)
         self.n_channel = analyzer.n_channel
         self.lut = GetColorMapLut(self.n_channel)
-        self.plot_items[0].setPen(self.lut[0])
+        # allow re-init by remove old plots
+        if len(self.plot_data_items) > 1:
+            # remove old plots
+            for i in range(1, len(self.plot_data_items)):
+                self.plot_widget.removeItem(self.plot_data_items[i])
+            self.plot_data_items = self.plot_data_items[0:1]
+        # set plots for each channel
+        self.plot_data_items[0].setPen(self.lut[0])
         for i in range(1, self.n_channel):
             pl = self.plot_widget.plot(
                 np.random.normal(size=100),
                 pen = self.lut[i],
                 name = f'ch{i+1}')
-            self.plot_items.append(pl)
+            self.plot_data_items.append(pl)
 
     def set_log_mode(self, log_mode):
         self.log_mode = log_mode
         for i in range(self.n_channel):
-            self.plot_items[i].setLogMode(x = self.log_mode, y = False)
+            self.plot_data_items[i].setLogMode(x = self.log_mode, y = False)
 
     def config_plot(self):
         self.plot_widget.setRange(self.spectrum_plot_range)
@@ -322,8 +332,8 @@ class SpectrumPlot:
 
     def update(self, fqs, spectrum_db):
         for i in range(self.n_channel):
-            self.plot_items[i].setData(x = fqs, y = spectrum_db[:,i])
-            #self.plot_items.setData(x = self.x_freq, y = spectrum_db)
+            self.plot_data_items[i].setData(x = fqs, y = spectrum_db[:,i])
+            #self.plot_data_items.setData(x = self.x_freq, y = spectrum_db)
 
 class RMSPlot:
     def __init__(self):
@@ -333,11 +343,11 @@ class RMSPlot:
     def init_to_widget(self):
         #dock2.hideTitleBar()
         plot_widget = pg.PlotWidget()
-        plot_item = plot_widget.plot(
+        plot_data_item = plot_widget.plot(
             -90 * np.ones(100),
             name = 'ch1')
         self.plot_widget = plot_widget
-        self.plot_items = [plot_item]
+        self.plot_data_items = [plot_data_item]
         return plot_widget
     
     def init_param(self, analyzer, sz_hop):
@@ -353,13 +363,20 @@ class RMSPlot:
         self.arr_t = np.arange(self.rms_len) * t_hop
         # set plot color
         self.lut = GetColorMapLut(self.n_channel)
-        self.plot_items[0].setPen(self.lut[0])
+        # allow re-init by remove old plots
+        if len(self.plot_data_items) > 1:
+            # remove old plots
+            for i in range(1, len(self.plot_data_items)):
+                self.plot_widget.removeItem(self.plot_data_items[i])
+            self.plot_data_items = self.plot_data_items[0:1]
+        # set plots for each channel
+        self.plot_data_items[0].setPen(self.lut[0])
         for i in range(1, self.n_channel):
             pl = self.plot_widget.plot(
                 -90 * np.ones(100),
                 pen = self.lut[i],
                 name = f'ch{i+1}')
-            self.plot_items.append(pl)
+            self.plot_data_items.append(pl)
         self.data_lock = threading.Lock()
     
     def config_plot(self):
@@ -387,7 +404,7 @@ class RMSPlot:
         with self.data_lock:
             arr = self.arr_rms_db.copy()       # is this minimize the race condition?
         for i in range(self.n_channel):
-            self.plot_items[i].setData(x = self.arr_t, y = arr[:,i])
+            self.plot_data_items[i].setData(x = self.arr_t, y = arr[:,i])
 
 class SpectrogramPlot:
     def __init__(self):
@@ -408,6 +425,7 @@ class SpectrogramPlot:
         return glayout_widget  # for add to dock: dock3.addWidget(glayout_widget)
     
     def init_param(self, analyzer, sz_hop):
+        """Allow re-init."""
         t_hop = sz_hop / analyzer.sample_rate
         self.max_freq = analyzer.fqs[-1]
         self.x_freq = analyzer.fqs
@@ -788,9 +806,12 @@ class AudioPipeline(pg.QtCore.QObject):
         self.rec_thread.start()
         self.chunk_process_thread.start()
 
-    def close(self):
+    def close(self, wait = False):
         self.rec_thread.b_run = False
         self.chunk_process_thread.b_run = False
+        if wait:
+            self.rec_thread.join()
+            self.chunk_process_thread.join()
 
     def proc_orig_data(self, data_chunk):
         ## usually called from data processing thread
@@ -915,14 +936,20 @@ class MainWindow(QtWidgets.QMainWindow):
             self.spectrogram_plot.feed_spectrum
         )
 
+    def restart_audio_pipeline(self, dev_name):
+        # stop old device
+        self.audio_pipeline.close(wait = True)
+        # start new device
+        self.ana_param.load_device_default(dev_name)
+        self.ana_param.update_to_ui(self.ui_dock4)
+        self.audio_pipeline.reinit(self.ana_param, self.update_graph, self.audio_saver_manager)
+
     def on_combobox_dev_activated(self, index):
         dev_name = self.ui_dock4.comboBox_dev.itemText(index)
         logging.info(f'Device: Item[{index}] = {dev_name} was selected')
         if dev_name == 'refresh list' or dev_name == 'none':
             return
-        self.ana_param.load_device_default(dev_name)
-        self.ana_param.update_to_ui(self.ui_dock4)
-        self.audio_pipeline.reinit(self.ana_param, self.update_graph, self.audio_saver_manager)
+        self.restart_audio_pipeline(dev_name)
 
     def is_monitoring_on(self):
         # Test if the monitor is on
