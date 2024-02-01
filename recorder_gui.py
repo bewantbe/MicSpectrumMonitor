@@ -98,6 +98,7 @@ Roadmap:
 * callback to sampling rate
     + done
 * callback to select channels
+    + done
 * callback to FFT length
 * callback to averaging
 * Test AD7606C
@@ -533,14 +534,17 @@ class AnalyzerParameters:
         try:
             # note: channel index starts from 0 in the code, but starts from 1 in the UI
             chs = [int(c) - 1 for c in channel_selected_text.split(',')]
-        except ValueError:
+            assert np.all(np.array(chs) < self.n_channel)
+            assert np.all(np.array(chs) >= 0)
+        except (ValueError, AssertionError):
             # set text box to light-red background
             line_edit_ch.setStyleSheet("background-color: LightSalmon")
-            return
+            return False
         else:
             # set normal background
             line_edit_ch.setStyleSheet("background-color: white")
         self.channel_selected = chs
+        return True
 
     def get_adc_conf(self):
         adc_conf = {}
@@ -811,6 +815,9 @@ class AudioPipeline():
             return
         self.rec_thread.join()
         self.chunk_process_thread.join()
+        # drink the rest of the queue
+        while not self.buf_queue.empty():
+            self.buf_queue.get_nowait()
 
     def proc_orig_data(self, data_chunk):
         ## usually called from data processing thread
@@ -832,12 +839,22 @@ class AudioPipeline():
         # plot
         self.cb_plot((rms_db, volt, fqs, spectrum_db))
         
+def PopOldEventsAndExecute(func):
+    """Used to let the padding events to be executed in the main thread, then
+       excute the func in the main thread.
+       Usually used in restarting the audio pipeline, for clearing the padding
+       graph plots, so that new (possibly incompatable) data can be forward to
+       the plots.
+    """
+    QtCore.QTimer.singleShot(0, func)
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main Window for monitoring and recording the Mic/ADC signals."""
 
-    # Ref. https://www.pythonguis.com/tutorials/pyqt6-signals-slots-events/
-    # See pyqtgraph's example console_exception_inspection.py.
+    # Ref. https://doc.qt.io/qtforpython-6/overviews/signalsandslots.html
+    #      https://doc.qt.io/qtforpython-6/PySide6/QtCore/Signal.html
+    #      https://www.pythonguis.com/tutorials/pyqt6-signals-slots-events/
+    # See also pyqtgraph's example console_exception_inspection.py.
     graph_data_updated = pg.QtCore.Signal(object)
 
     def __init__(self, *args, **kwargs):
@@ -909,11 +926,12 @@ class MainWindow(QtWidgets.QMainWindow):
         # connect sample rate comboBox
         self.ui_dock4.comboBox_sr.activated.connect(self.on_combobox_sr_activated)
         # connect channel text box (and sanity check)
-        self.ui_dock4.lineEdit_ch.textChanged.connect(
-            lambda: self.ana_param.update_channel_by_ui(self.ui_dock4.lineEdit_ch))
+        self.ui_dock4.lineEdit_ch.textChanged.connect(self.on_lineedit_ch_text_changed)
         # connect recording related buttons and text boxes
         self.audio_saver_manager.connect_button_events(self.ui_dock4)
         # connect plot event
+        #   Queued connection is used to put the rendering in main thread,
+        #   and hopefully speed up (by non-blocking) the data processing thread.
         self.graph_data_updated.connect(self.update_graph, 
                                         pg.QtCore.Qt.ConnectionType.QueuedConnection)
         # connect the custom closeEvent
@@ -929,6 +947,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def stop_data_pipeline(self):
         if self.audio_pipeline.is_device_on():
             self.audio_pipeline.close(wait=True)
+        logging.info('rec stopped')
 
     def start_data_pipeline(self, dev_name = None):
         # start new device
@@ -961,14 +980,20 @@ class MainWindow(QtWidgets.QMainWindow):
             self.spectrogram_plot.feed_spectrum,
             self.graph_data_updated.emit
         )
+        logging.info('rec restarted')
 
     def on_combobox_dev_activated(self, index):
         dev_name = self.ui_dock4.comboBox_dev.itemText(index)
         logging.info(f'Device: Item[{index}] = "{dev_name}" was selected')
-        if dev_name == 'refresh list' or dev_name == 'none':
+        if dev_name == 'refresh list':
+            return  # TODO
+        if dev_name == 'none':
+            self.stop_data_pipeline()
             return
         self.stop_data_pipeline()
-        self.start_data_pipeline(dev_name)
+        PopOldEventsAndExecute(
+            lambda: self.start_data_pipeline(dev_name)
+        )
 
     def on_combobox_sr_activated(self, index):
         sr_text = self.ui_dock4.comboBox_sr.itemText(index)
@@ -977,7 +1002,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ana_param.sample_rate = sr
         # full restart. TODO: allow partial restart
         self.stop_data_pipeline()
-        self.start_data_pipeline()
+        PopOldEventsAndExecute(
+            self.start_data_pipeline
+        )
+
+    def on_lineedit_ch_text_changed(self, text):
+        print('lineedit_ch_text_changed:', text)
+        ok = self.ana_param.update_channel_by_ui(self.ui_dock4.lineEdit_ch)
+        if not ok:
+            return
+        if not self.audio_pipeline.is_device_on():
+            return
+        # full restart. TODO: allow partial restart
+        self.stop_data_pipeline()
+        PopOldEventsAndExecute(
+            self.start_data_pipeline
+        )
 
     def is_monitoring_on(self):
         # Test if the monitor is on
