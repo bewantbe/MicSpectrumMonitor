@@ -541,6 +541,8 @@ class AnalyzerParameters:
         # channels selected
         st_chs = ','.join([str(c+1) for c in self.channel_selected])
         ui.lineEdit_ch.setText(st_chs)
+        # max channel number
+        ui.label_ch.setText(f'Channels (max {self.n_channel}):')
         # fft length
         ui.comboBox_fftlen.setCurrentText(str(self.size_chunk))
         # averaging number
