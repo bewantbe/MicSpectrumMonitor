@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# recommend to use pyqt6
+
 # Usage:
 #   python3 recorder_gui.py
 
@@ -22,9 +24,6 @@ logging.basicConfig(
 )
 
 import numpy as np
-
-import PyQt6
-import PyQt6.QtWidgets
 
 import pyqtgraph as pg
 #from pyqtgraph.console import ConsoleWidget
@@ -104,6 +103,7 @@ Roadmap:
 * callback to averaging
     + done
 * Test AD7606C
+* Colormap for spectrogram
 * Spectrogram plot log mode.
 * Add show FPS, ref to the fps counter design in pyqtgraph example
 * link frequency axis of spectrum and spectrogram
@@ -497,7 +497,7 @@ def simple_message_box(msg_text):
     #msg.setIcon(QtWidgets.QMessageBox.Information)
     msg.setText(msg_text)
     msg.setWindowTitle("Recording saved")
-    msg.setStandardButtons(PyQt6.QtWidgets.QMessageBox.StandardButton.Ok)
+    msg.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
     msg.exec()
 
 # copy from M3F20xm.py

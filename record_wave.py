@@ -2,7 +2,6 @@
 
 import sys
 import time
-import struct
 import re
 import queue
 import threading
