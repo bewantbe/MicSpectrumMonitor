@@ -100,6 +100,7 @@ Roadmap:
 * callback to select channels
     + done
 * callback to FFT length
+    + done
 * callback to averaging
 * Test AD7606C
 * Spectrogram plot log mode.
@@ -558,6 +559,11 @@ class AnalyzerParameters:
             ana_conf[k] = getattr(self, k)
         return ana_conf
 
+    def set_fft_len(self, fft_len):
+        ratio = self.size_hop / self.size_chunk
+        self.size_chunk = fft_len
+        self.size_hop = int(np.round(fft_len * ratio))
+
     def load_mic_default(self):
         # for mic / ADC
         self.sampler_id   = 'mic'
@@ -928,6 +934,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui_dock4.comboBox_sr.activated.connect(self.on_combobox_sr_activated)
         # connect channel text box (and sanity check)
         self.ui_dock4.lineEdit_ch.textChanged.connect(self.on_lineedit_ch_text_changed)
+        # connect fft length comboBox
+        self.ui_dock4.comboBox_fftlen.activated.connect(self.on_combobox_fftlen_activated)
         # connect recording related buttons and text boxes
         self.audio_saver_manager.connect_button_events(self.ui_dock4)
         # connect plot event
@@ -1010,12 +1018,22 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def on_lineedit_ch_text_changed(self, text):
-        print('lineedit_ch_text_changed:', text)
+        logging.info(f'lineedit_ch_text_changed: {text}')
         ok = self.ana_param.update_channel_by_ui(self.ui_dock4.lineEdit_ch)
         if not ok:
             return
         if not self.audio_pipeline.is_device_on():
             return
+        # full restart. TODO: allow partial restart
+        self.stop_data_pipeline()
+        PopOldEventsAndExecute(
+            self.start_data_pipeline
+        )
+
+    def on_combobox_fftlen_activated(self, index):
+        l = int(self.ui_dock4.comboBox_fftlen.itemText(index))
+        logging.info(f'combobox fftlen: {l}')
+        self.ana_param.set_fft_len(l)
         # full restart. TODO: allow partial restart
         self.stop_data_pipeline()
         PopOldEventsAndExecute(

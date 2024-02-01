@@ -162,7 +162,7 @@
      </widget>
     </item>
     <item row="0" column="6">
-     <widget class="QComboBox" name="comboBox_ftlen">
+     <widget class="QComboBox" name="comboBox_fftlen">
       <property name="editable">
        <bool>false</bool>
       </property>
@@ -302,7 +302,7 @@
   <tabstop>comboBox_dev</tabstop>
   <tabstop>comboBox_sr</tabstop>
   <tabstop>lineEdit_ch</tabstop>
-  <tabstop>comboBox_ftlen</tabstop>
+  <tabstop>comboBox_fftlen</tabstop>
   <tabstop>comboBox_nave</tabstop>
   <tabstop>pushButton_mon</tabstop>
   <tabstop>pushButton_screenshot</tabstop>
