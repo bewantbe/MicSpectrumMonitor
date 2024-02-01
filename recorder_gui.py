@@ -919,6 +919,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # connect monitor button
         ui_dock4.pushButton_mon.clicked.connect(self.start_stop_monitoring)
+        self.b_monitor_on = not ui_dock4.pushButton_mon.isChecked()
         # connect screenshot button
         ui_dock4.pushButton_screenshot.clicked.connect(self.take_screen_shot)
         # connect device selection comboBox
@@ -972,7 +973,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.spectrogram_plot.init_param(analyzer_data, sz_hop)
         self.spectrogram_plot.config_plot()
 
-        self.b_monitor_on = True
+        # set to false to start the monitoring
+        self.ui_dock4.pushButton_mon.setChecked(False)
+        self.start_stop_monitoring(False)
 
         self.audio_pipeline.start(
             self.audio_saver_manager,
@@ -1025,19 +1028,20 @@ class MainWindow(QtWidgets.QMainWindow):
             return False
         return self.b_monitor_on
 
-    def start_stop_monitoring(self):
-        if self.is_monitoring_on():
+    def start_stop_monitoring(self, checked):
+        """checked == False: running, and the button is used to stop the monitoring"""
+        logging.debug(f'start_stop_monitoring: {checked}')
+        btn = self.ui_dock4.pushButton_mon
+        if checked:
             # stop the monitoring
             self.b_monitor_on = False
-            # set the button text to 'Start monitoring', make background grey
-            self.ui_dock4.pushButton_mon.setText('Start monitoring')
-            self.ui_dock4.pushButton_mon.setStyleSheet("background-color: grey")
+            btn.setText('Start monitoring')
+            #btn.setStyleSheet("background-color: grey")
         else:
             # start the monitoring
             self.b_monitor_on = True
-            # set the button text to 'Stop monitoring', make background red
-            self.ui_dock4.pushButton_mon.setText('Stop monitoring')
-            self.ui_dock4.pushButton_mon.setStyleSheet("background-color: white")
+            btn.setText('Stop monitoring')
+            #btn.setStyleSheet("background-color: white")
 
     # TODO: annotate callbacks using decorator
     def update_graph(self, obj):

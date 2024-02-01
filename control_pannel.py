@@ -88,6 +88,8 @@ class Ui_Dock4(object):
         sizePolicy.setHeightForWidth(self.pushButton_mon.sizePolicy().hasHeightForWidth())
         self.pushButton_mon.setSizePolicy(sizePolicy)
         self.pushButton_mon.setMinimumSize(QtCore.QSize(110, 0))
+        self.pushButton_mon.setCheckable(True)
+        self.pushButton_mon.setChecked(False)
         self.pushButton_mon.setObjectName("pushButton_mon")
         self.gridLayout.addWidget(self.pushButton_mon, 0, 7, 1, 1)
         self.pushButton_rec = QtWidgets.QPushButton(parent=self.gridLayoutWidget)
