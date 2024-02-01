@@ -360,6 +360,7 @@ class RMSPlot:
         self.dB_max = analyzer.RMS_db_sine_inc
         self.dB_min = 20 * np.log10(2**(-15))     # assume 16-bit
         # for RMS data
+        self.n_ave = analyzer.ave_num
         t_hop = sz_hop / analyzer.sample_rate
         self.rms_len = int(self.t_duration_set / t_hop)
         self.t_duration = self.rms_len * t_hop    # correct the duration
@@ -398,8 +399,12 @@ class RMSPlot:
     @property
     def rms_plot_range(self):
         rg = QtCore.QRectF(*map(float,
-            [0, self.dB_min, self.t_duration_set, self.dB_max - self.dB_min]))
+            [0, self.dB_min,
+             self.n_ave * self.t_duration_set, self.dB_max - self.dB_min]))
         return rg  # x, y, width, height
+    
+    def set_n_ave(self, n_ave):
+        self.n_ave = n_ave
     
     def feed_rms(self, rms_db):
         with self.data_lock:
@@ -410,7 +415,7 @@ class RMSPlot:
         with self.data_lock:
             arr = self.arr_rms_db.copy()       # is this minimize the race condition?
         for i in range(self.n_channel):
-            self.plot_data_items[i].setData(x = self.arr_t, y = arr[:,i])
+            self.plot_data_items[i].setData(x = self.n_ave * self.arr_t, y = arr[:,i])
 
 class SpectrogramPlot:
     def __init__(self):
@@ -844,15 +849,17 @@ class AudioPipeline():
         ## usually called from data processing thread
         # analysing
         self.analyzer_data.put(data_chunk)
-        fqs = self.analyzer_data.fqs
-        rms_db = self.analyzer_data.get_RMS_dB()
         volt = self.analyzer_data.get_volt()
         if self.analyzer_data.has_new_data():
+            rms_db = self.analyzer_data.get_FFT_RMS_dBA()
+            fqs = self.analyzer_data.fqs
             spectrum_db = self.analyzer_data.get_spectrum_dB()
             self.cb_update_spectrum(spectrum_db)
+            self.cb_update_rms(rms_db)
         else:
+            rms_db = None
+            fqs = None
             spectrum_db = None
-        self.cb_update_rms(rms_db)
         # plot
         self.cb_plot((rms_db, volt, fqs, spectrum_db))
         
@@ -1059,6 +1066,7 @@ class MainWindow(QtWidgets.QMainWindow):
         logging.info(f'combobox nave: {n}')
         self.ana_param.n_ave = n
         self.audio_pipeline.set_n_ave(n)
+        self.rms_plot.set_n_ave(n)
         self.spectrogram_plot.set_n_ave(n)
 
     def is_monitoring_on(self):
@@ -1091,9 +1099,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # ploting
         if self.fps_limiter_wave.checkFPSAllow():
             self.waveform_plot.update(volt)
-            self.rms_plot.update()
         if spectrum_db is not None:
             if self.fps_limiter_fft.checkFPSAllow():
+                self.rms_plot.update()
                 self.spectrum_plot.update(fqs, spectrum_db)
                 self.spectrogram_plot.update()
     

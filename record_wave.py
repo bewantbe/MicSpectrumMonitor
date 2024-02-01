@@ -89,7 +89,7 @@ class analyzerData():
         self.lock_data = threading.Lock()
         # window function
         self.wnd = 0.5 + 0.5 * np.cos((np.arange(1, sz_chunk+1) / (sz_chunk+1.0) - 0.5) * 2 * np.pi)
-#        self.wnd = np.ones(sz_chunk)
+        #self.wnd = np.ones(sz_chunk)
         self.wnd *= len(self.wnd) / sum(self.wnd)
         self.wnd_factor = self.RMS_sine_factor * 2.0 / sum(self.wnd) ** 2
         self.wnd = self.wnd.reshape(-1, 1)
