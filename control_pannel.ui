@@ -291,7 +291,7 @@
     <item row="4" column="2" colspan="4">
      <widget class="QLabel" name="label_rec_remain">
       <property name="text">
-       <string>Rec: XX:XX:XX  (XX;XX:XX left)</string>
+       <string>Rec info</string>
       </property>
      </widget>
     </item>

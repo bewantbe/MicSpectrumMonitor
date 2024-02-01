@@ -541,6 +541,10 @@ class AnalyzerParameters:
         # channels selected
         st_chs = ','.join([str(c+1) for c in self.channel_selected])
         ui.lineEdit_ch.setText(st_chs)
+        # fft length
+        ui.comboBox_fftlen.setCurrentText(str(self.size_chunk))
+        # averaging number
+        ui.comboBox_nave.setCurrentText(str(self.n_ave))
 
     def update_channel_by_ui(self, line_edit_ch):
         #line_edit_ch = self.main_wnd.ui_dock4.lineEdit_ch
@@ -601,7 +605,7 @@ class AnalyzerParameters:
         # for FFT analyzer
         self.size_chunk   = 1024
         self.size_hop     = self.size_chunk // 2
-        self.n_ave        = 1
+        self.n_ave        = 2
         self.use_dBA      = False
         # TODO: calibration_path
         self._adc_conf_keys = [
@@ -629,7 +633,7 @@ class AnalyzerParameters:
         # for FFT analyzer
         self.size_chunk   = 1024
         self.size_hop     = self.size_chunk // 2
-        self.n_ave        = 1
+        self.n_ave        = 8
         self.use_dBA      = False
         self._adc_conf_keys = [
             'sampler_id', 'sample_rate', 'periodsize']
