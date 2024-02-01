@@ -18,10 +18,6 @@ import math
 import threading
 
 import logging
-# enable logging
-logging.basicConfig(
-    level=logging.DEBUG
-)
 
 import numpy as np
 
@@ -32,6 +28,11 @@ from pyqtgraph.dockarea.DockArea import DockArea
 from pyqtgraph.Qt import (
     QtCore,
     QtWidgets
+)
+
+# enable logging
+logging.basicConfig(
+    level=logging.DEBUG
 )
 
 from record_wave import (
@@ -455,9 +456,10 @@ class SpectrogramPlot:
         self.spam_bmp_t_duration = self.spam_len * t_hop    # correct the duration
         self.spam_loop_cursor = 0
         if self.log_mode:
-            self.spam_bmp = np.zeros((self.spam_len, self.n_freq))   # TODO: fix this according to the zooming
+            # TODO: fix this according to the zooming
+            self.spam_bmp = -120 * np.ones((self.spam_len, self.n_freq))
         else:
-            self.spam_bmp = np.zeros((self.spam_len, self.n_freq))
+            self.spam_bmp = -120 * np.ones((self.spam_len, self.n_freq))
         self.spam_lock = threading.Lock()
     
     def config_plot(self):

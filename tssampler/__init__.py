@@ -9,6 +9,8 @@
 #   sam = get_sampler(conf)
 #   vals = sam.read(1024)
 
+import logging
+
 from .tssabc import register_sampler, get_sampler, sampler_registry
 
 from .ideal_source import SineSource, WhiteSource
@@ -26,5 +28,9 @@ else:
     register_sampler(AlsaAudio)
     register_sampler(AlsaAudio, 'mic')
 
-from .read_ad7606c import AD7606CReader
-register_sampler(AD7606CReader)
+try:
+    from .read_ad7606c import AD7606CReader
+except ImportError:
+    logging.warning('AD7606C reader is not available')
+else:
+    register_sampler(AD7606CReader)
