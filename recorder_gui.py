@@ -102,6 +102,7 @@ Roadmap:
 * callback to FFT length
     + done
 * callback to averaging
+    + ...
 * Test AD7606C
 * Spectrogram plot log mode.
 * Add show FPS, ref to the fps counter design in pyqtgraph example
@@ -435,6 +436,7 @@ class SpectrogramPlot:
         self.max_freq = analyzer.fqs[-1]
         self.x_freq = analyzer.fqs
         self.n_freq = len(self.x_freq)
+        self.n_ave = analyzer.ave_num
         self.spam_len = int(self.spam_bmp_t_duration_set / t_hop)
         self.spam_bmp_t_duration = self.spam_len * t_hop    # correct the duration
         self.spam_loop_cursor = 0
@@ -454,6 +456,9 @@ class SpectrogramPlot:
             #x_axis = self.plot_item.getAxis('bottom')
             #y_axis = self.plot_item.getAxis('left')
     
+    def set_n_ave(self, n_ave):
+        self.n_ave = n_ave
+    
     def feed_spectrum(self, spectrum):
         # separate computation (here) and plot (in update()) in different threads
         with self.spam_lock:
@@ -471,7 +476,7 @@ class SpectrogramPlot:
         spam_bmp = self.get_spectrogram_bmp()
         with self.spam_lock:                   # TODO: maybe I don't need this lock
             self.img_item.setImage(spam_bmp,
-                rect=[0, 0, self.spam_bmp_t_duration, self.max_freq])
+                rect=[0, 0, self.n_ave * self.spam_bmp_t_duration, self.max_freq])
 
 def simple_message_box(msg_text):
     msg = QtWidgets.QMessageBox()
@@ -806,6 +811,9 @@ class AudioPipeline():
             return False
         return self.rec_thread.b_run
 
+    def set_n_ave(self, n_ave):
+        self.analyzer_data.set_n_ave(n_ave)
+
     def start(self, audio_saver_manager, cb_update_rms, cb_update_spectrum, cb_plot):
         self.audio_saver_manager = audio_saver_manager
         self.cb_update_rms = cb_update_rms
@@ -839,9 +847,12 @@ class AudioPipeline():
         fqs = self.analyzer_data.fqs
         rms_db = self.analyzer_data.get_RMS_dB()
         volt = self.analyzer_data.get_volt()
-        spectrum_db = self.analyzer_data.get_spectrum_dB()
+        if self.analyzer_data.has_new_data():
+            spectrum_db = self.analyzer_data.get_spectrum_dB()
+            self.cb_update_spectrum(spectrum_db)
+        else:
+            spectrum_db = None
         self.cb_update_rms(rms_db)
-        self.cb_update_spectrum(spectrum_db)
         # plot
         self.cb_plot((rms_db, volt, fqs, spectrum_db))
         
@@ -936,6 +947,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui_dock4.lineEdit_ch.textChanged.connect(self.on_lineedit_ch_text_changed)
         # connect fft length comboBox
         self.ui_dock4.comboBox_fftlen.activated.connect(self.on_combobox_fftlen_activated)
+        # connect n average comboBox
+        self.ui_dock4.comboBox_nave.activated.connect(self.on_combobox_nave_activated)
         # connect recording related buttons and text boxes
         self.audio_saver_manager.connect_button_events(self.ui_dock4)
         # connect plot event
@@ -948,7 +961,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.show()
 
-        self.fps_limiter = FPSLimiter(30)        # for limiting update_graph
+        self.fps_limiter_wave = FPSLimiter(30)        # for limiting update_graph
+        self.fps_limiter_fft  = FPSLimiter(30)        # for limiting update_graph
 
         default_device_idx = 0
         self.on_combobox_dev_activated(default_device_idx)
@@ -1040,6 +1054,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.start_data_pipeline
         )
 
+    def on_combobox_nave_activated(self, index):
+        n = int(self.ui_dock4.comboBox_nave.itemText(index))
+        logging.info(f'combobox nave: {n}')
+        self.ana_param.n_ave = n
+        self.audio_pipeline.set_n_ave(n)
+        self.spectrogram_plot.set_n_ave(n)
+
     def is_monitoring_on(self):
         # Test if the monitor is on
         if not self.audio_pipeline.is_device_on():
@@ -1065,15 +1086,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def update_graph(self, obj):
         if not self.b_monitor_on:
             return
-        if not self.fps_limiter.checkFPSAllow():
-            return
         # usually called from main thread
         rms_db, volt, fqs, spectrum_db = obj
         # ploting
-        self.waveform_plot.update(volt)
-        self.spectrum_plot.update(fqs, spectrum_db)
-        self.rms_plot.update()
-        self.spectrogram_plot.update()
+        if self.fps_limiter_wave.checkFPSAllow():
+            self.waveform_plot.update(volt)
+            self.rms_plot.update()
+        if spectrum_db is not None:
+            if self.fps_limiter_fft.checkFPSAllow():
+                self.spectrum_plot.update(fqs, spectrum_db)
+                self.spectrogram_plot.update()
     
     def custom_close_event(self, event):
         # TODO: disable the recorder first

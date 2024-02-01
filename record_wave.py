@@ -164,6 +164,11 @@ class analyzerData():
         self.calib_pow = 10 ** (self.calib_db / 10)
         print('Using calibration file "%s": %d entries' % (fname, len(calib_orig[0])))
 
+    def set_n_ave(self, n):
+        self.ave_num = n
+        self.sp_cnt = 0
+        self.sp_cumulate[:] = 0
+
     def put(self, data):
         if len(self.v) != len(data):
             raise ValueError('Data size mismatch.')
@@ -198,6 +203,9 @@ class analyzerData():
             self.sp_cumulate[:] = 0
         
         self.rms = sqrt(self.RMS_sine_factor * sum(self.v ** 2, axis=0) / len(self.v))
+
+    def has_new_data(self):
+        return self.sp_cnt == 0
 
     def get_volt(self):
         self.lock_data.acquire()  # TODO: rewrite using context management protocol (with lock:)
