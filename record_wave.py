@@ -77,7 +77,8 @@ class recThread(threading.Thread):
 # Analyze data
 class analyzerData():
     """ Data analyzer """
-    def __init__(self, sz_chunk, sample_rate, ave_num = 1, n_channel = 1, RMS_normalize_to_sine = False):
+    def __init__(self, sz_chunk, sample_rate, ave_num = 1, n_channel = 1,
+                 RMS_normalize_to_sine = False, volt_zero = 0):
         self.sample_rate = sample_rate
         self.sz_chunk = sz_chunk     # data size for one FFT
         self.sz_fft   = sz_chunk     # FFT frequency points
@@ -91,6 +92,13 @@ class analyzerData():
         self.sp_db = np.ones(((self.sz_fft + 2) // 2, n_channel)) * float('-inf')
         self.sp_cnt = 0
         self.ave_num = ave_num       # number of averages to get one spectrum
+        if volt_zero == 'auto':
+            self.volt_zero = np.zeros(n_channel) # low pass to folow the mean volt
+            self.volt_zero_weight = 0.9
+            self.volt_zero_auto = True
+        else:
+            self.volt_zero = volt_zero  # for tracking zero level of the volt
+            self.volt_zero_auto = False
         self.lock_data = threading.Lock()
         # window function
         self.wnd = 0.5 + 0.5 * np.cos((np.arange(1, sz_chunk+1) / (sz_chunk+1.0) - 0.5) * 2 * np.pi)
@@ -181,6 +189,13 @@ class analyzerData():
         self.lock_data.acquire()
         self.v[:] = data.reshape(-1, self.n_channel)    # save a copy, minize lock time
         self.lock_data.release()
+        
+        # remove zero volt
+        if self.volt_zero_auto:
+            self.volt_zero = self.volt_zero_weight * self.volt_zero + \
+                (1 - self.volt_zero_weight) * self.v.mean(axis=0)
+        
+        self.v[:] -= self.volt_zero
         
         # spectrum
         tmp_amp = np.fft.rfft(self.v * self.wnd, self.sz_fft, axis=0)

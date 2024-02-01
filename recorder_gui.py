@@ -351,7 +351,6 @@ class SpectrumPlot:
 class RMSPlot:
     def __init__(self):
         self.fixed_range = False
-        self.t_duration_set = 6.0  # sec
 
     def init_to_widget(self):
         #dock2.hideTitleBar()
@@ -365,11 +364,12 @@ class RMSPlot:
         self.plot_data_items = [plot_data_item]
         return plot_widget
     
-    def init_param(self, analyzer, sz_hop):
+    def init_param(self, analyzer, sz_hop, spectrogram_duration):
         self.dB_max = analyzer.RMS_db_sine_inc
         self.dB_min = 20 * np.log10(2**(-15))     # assume 16-bit
         # for RMS data
         self.n_ave = analyzer.ave_num
+        self.t_duration_set = spectrogram_duration
         t_hop = sz_hop / analyzer.sample_rate
         self.rms_len = int(self.t_duration_set / t_hop)
         self.t_duration = self.rms_len * t_hop    # correct the duration
@@ -429,7 +429,6 @@ class RMSPlot:
 class SpectrogramPlot:
     def __init__(self):
         self.log_mode = False
-        self.spam_bmp_t_duration_set = 6.0  # sec
 
     def init_to_widget(self):
         # called in main thread init
@@ -444,13 +443,14 @@ class SpectrogramPlot:
         # TODO: add color bar
         return glayout_widget  # for add to dock: dock3.addWidget(glayout_widget)
     
-    def init_param(self, analyzer, sz_hop):
+    def init_param(self, analyzer, sz_hop, spectrogram_duration):
         """Allow re-init."""
         t_hop = sz_hop / analyzer.sample_rate
         self.max_freq = analyzer.fqs[-1]
         self.x_freq = analyzer.fqs
         self.n_freq = len(self.x_freq)
         self.n_ave = analyzer.ave_num
+        self.spam_bmp_t_duration_set = spectrogram_duration  # sec
         self.spam_len = int(self.spam_bmp_t_duration_set / t_hop)
         self.spam_bmp_t_duration = self.spam_len * t_hop    # correct the duration
         self.spam_loop_cursor = 0
@@ -614,6 +614,7 @@ class AnalyzerParameters:
         self.size_chunk   = 1024
         self.size_hop     = self.size_chunk // 2
         self.n_ave        = 2
+        self.spectrogram_duration = 6.0
         self.use_dBA      = False
         # TODO: calibration_path
         self._adc_conf_keys = [
@@ -642,6 +643,7 @@ class AnalyzerParameters:
         self.size_chunk   = 1024
         self.size_hop     = self.size_chunk // 2
         self.n_ave        = 8
+        self.spectrogram_duration = 1.0
         self.use_dBA      = False
         self._adc_conf_keys = [
             'sampler_id', 'sample_rate', 'periodsize']
@@ -814,7 +816,7 @@ class AudioPipeline():
         # init FFT Analyzer
         self.analyzer_data = analyzerData(
             ana_conf['size_chunk'], adc_conf['sample_rate'], ana_conf['n_ave'],
-            len(ana_param.channel_selected))
+            len(ana_param.channel_selected), volt_zero='auto')
         self.analyzer_data.use_dBA = ana_conf['use_dBA']
         
         sz_chunk = ana_conf['size_chunk']
@@ -1016,9 +1018,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.waveform_plot.config_plot()
         self.spectrum_plot.init_param(analyzer_data, sz_hop)
         self.spectrum_plot.config_plot()
-        self.rms_plot.init_param(analyzer_data, sz_hop)
+        self.rms_plot.init_param(analyzer_data, sz_hop,
+                                 self.ana_param.spectrogram_duration)
         self.rms_plot.config_plot()
-        self.spectrogram_plot.init_param(analyzer_data, sz_hop)
+        self.spectrogram_plot.init_param(analyzer_data, sz_hop,
+                                         self.ana_param.spectrogram_duration)
         self.spectrogram_plot.config_plot()
 
         # set to false to start the monitoring
