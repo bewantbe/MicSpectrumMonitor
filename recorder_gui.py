@@ -102,7 +102,7 @@ Roadmap:
 * callback to FFT length
     + done
 * callback to averaging
-    + ...
+    + done
 * Test AD7606C
 * Spectrogram plot log mode.
 * Add show FPS, ref to the fps counter design in pyqtgraph example
@@ -308,6 +308,7 @@ class SpectrumPlot:
         self.n_freq = len(self.x_freq)
         self.n_channel = analyzer.n_channel
         self.lut = GetColorMapLut(self.n_channel)
+        self.lower_bound_spectrum_db = analyzer.lower_bound_spectrum_dB()
         # allow re-init by remove old plots
         if len(self.plot_data_items) > 1:
             # remove old plots
@@ -333,7 +334,9 @@ class SpectrumPlot:
 
     @property
     def spectrum_plot_range(self):
-        rg = QtCore.QRectF(*map(float, [0, -120, self.max_freq, 120]))
+        rg = QtCore.QRectF(*map(float, [
+            0, self.lower_bound_spectrum_db,
+            self.max_freq, 5 - self.lower_bound_spectrum_db]))
         return rg  # x, y, width, height
 
     def update(self, fqs, spectrum_db):

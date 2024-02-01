@@ -40,6 +40,12 @@ pacmd set-source-volume 1 6554 && pacmd list-sources | grep volume
 
 from recmonitor import shortPeriodDectector, overrunChecker
 
+def log10_(x):
+    # log of 0 is -inf, don't raise error or warning
+    # no more np.seterr(divide='ignore')       # for God's sake
+    with np.errstate(divide='ignore'):
+        return log10(x)
+
 class recThread(threading.Thread):
     """ Recorder thread """
     def __init__(self, name, buf_que, conf):
@@ -197,8 +203,7 @@ class analyzerData():
             self.sp_vo[:] = self.sp_cumulate[:]
             if self.use_dBA:
                 self.sp_vo *= self.dBAFactor
-            np.seterr(divide='ignore')       # for God's sake
-            self.sp_db = 10 * log10(self.sp_vo)  #  in dB
+            self.sp_db = 10 * log10_(self.sp_vo)  #  in dB
             self.lock_data.release()
             self.sp_cumulate[:] = 0
         
@@ -206,6 +211,10 @@ class analyzerData():
 
     def has_new_data(self):
         return self.sp_cnt == 0
+
+    def lower_bound_spectrum_dB(self, n_bit_depth = 16):
+        # TODO: what's the quantization limit of floating point FFT lagorithm?
+        return 20 * log10(1 / 2**n_bit_depth) + 10 * log10(1 / self.sz_fft)
 
     def get_volt(self):
         self.lock_data.acquire()  # TODO: rewrite using context management protocol (with lock:)
@@ -220,16 +229,14 @@ class analyzerData():
         return tmps
 
     def get_RMS_dB(self):
-        np.seterr(divide='ignore')       # for God's sake
-        return 20*log10(self.rms)  # already count RMS_db_sine_inc
+        return 20*log10_(self.rms)  # already count RMS_db_sine_inc
 
     def get_FFT_RMS_dBA(self):
         self.lock_data.acquire()
         fft_rms = sqrt(2 * sum(self.sp_vo, axis=0) / self.wnd_factor \
                        / self.sz_fft / sum(self.wnd ** 2, axis=0))
         self.lock_data.release()
-        np.seterr(divide='ignore')       # for God's sake
-        return 20*log10(fft_rms) + self.RMS_db_sine_inc
+        return 20*log10_(fft_rms) + self.RMS_db_sine_inc
 
 class FPSLimiter:
     """ fps limiter """
