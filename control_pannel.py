@@ -155,4 +155,4 @@ class Ui_Dock4(object):
         self.pushButton_mon.setText(_translate("Dock4", "Stop monitoring"))
         self.pushButton_rec.setText(_translate("Dock4", "Start recording"))
         self.toolButton_path.setText(_translate("Dock4", "Browse"))
-        self.label_rec_remain.setText(_translate("Dock4", "Rec: XX:XX:XX  (XX;XX:XX left)"))
+        self.label_rec_remain.setText(_translate("Dock4", "Rec info"))

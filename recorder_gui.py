@@ -240,10 +240,12 @@ class WaveformPlot:
     
     def init_to_widget(self):
         #dock1.hideTitleBar()
-        plot_widget = pg.PlotWidget(title="Waveform")
+        plot_widget = pg.PlotWidget()
         plot_data_item = plot_widget.plot(
             np.random.normal(size=100),
             name = 'ch1')
+        # Set the margins of the layout (left, top, right, bottom)
+        plot_widget.getPlotItem().layout.setContentsMargins(0, 10, 10, 0)
         plot_widget.getPlotItem().getAxis('left').setWidth(50)
         self.plot_widget = plot_widget
         self.plot_data_items = [plot_data_item]
@@ -296,6 +298,8 @@ class SpectrumPlot:
         plot_widget.setLabel('left', units='dB')
         plot_widget.setLabel('bottom', units='Hz')
         plot_widget.showGrid(x=True, y=True)
+        # Set the margins of the layout (left, top, right, bottom)
+        plot_widget.getPlotItem().layout.setContentsMargins(0, 10, 10, 0)
         self.plot_widget = plot_widget
         self.plot_data_items = [plot_data_item]
         return plot_widget
@@ -355,6 +359,8 @@ class RMSPlot:
         plot_data_item = plot_widget.plot(
             -90 * np.ones(100),
             name = 'ch1')
+        # Set the margins of the layout (left, top, right, bottom)
+        plot_widget.getPlotItem().layout.setContentsMargins(0, 10, 10, 0)
         self.plot_widget = plot_widget
         self.plot_data_items = [plot_data_item]
         return plot_widget
@@ -542,7 +548,7 @@ class AnalyzerParameters:
         st_chs = ','.join([str(c+1) for c in self.channel_selected])
         ui.lineEdit_ch.setText(st_chs)
         # max channel number
-        ui.label_ch.setText(f'Channels (max {self.n_channel}):')
+        ui.label_ch.setText(f'Channels (1~{self.n_channel}):')
         # fft length
         ui.comboBox_fftlen.setCurrentText(str(self.size_chunk))
         # averaging number
@@ -972,6 +978,10 @@ class MainWindow(QtWidgets.QMainWindow):
         #   and hopefully speed up (by non-blocking) the data processing thread.
         self.graph_data_updated.connect(self.update_graph, 
                                         pg.QtCore.Qt.ConnectionType.QueuedConnection)
+        # update time every 0.2 second
+        self.datetime_update_timer = QtCore.QTimer()
+        self.datetime_update_timer.timeout.connect(self.update_current_datetime)
+        self.datetime_update_timer.start(200)
         # connect the custom closeEvent
         self.closeEvent = self.custom_close_event
 
@@ -1114,6 +1124,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.spectrum_plot.update(fqs, spectrum_db)
                 self.spectrogram_plot.update()
     
+    def update_current_datetime(self):
+        now = datetime.datetime.now()
+        self.ui_dock4.label_datetime.setText(now.strftime("%Y-%m-%d %H:%M:%S"))
+
     def custom_close_event(self, event):
         # TODO: disable the recorder first
         self.audio_pipeline.close(wait=False)
