@@ -67,7 +67,7 @@ class recThread(threading.Thread):
         overrun_checker.start()
         while self.b_run:
             sample_d = self.sampler.read(self.conf['periodsize'])
-            #overrun_checker.updateState(l)
+            overrun_checker.updateState(len(sample_d))
             if not self.buf_que.full():
                 self.buf_que.put(sample_d, True)
             else:
@@ -94,7 +94,10 @@ class analyzerData():
         self.ave_num = ave_num       # number of averages to get one spectrum
         if volt_zero == 'auto':
             self.volt_zero = np.zeros(n_channel) # low pass to folow the mean volt
-            self.volt_zero_weight = 0.9
+            # let the time constant be 1.0 second
+            dt = sz_chunk / sample_rate
+            tau = 1.0
+            self.volt_zero_weight = np.exp(-dt / tau * np.log(2))
             self.volt_zero_auto = True
         else:
             self.volt_zero = volt_zero  # for tracking zero level of the volt

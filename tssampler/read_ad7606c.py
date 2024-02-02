@@ -5,8 +5,12 @@ import numpy as np
 from . import tssabc
 #import tssabc     # use as script
 
+import os
 import sys
-sys.path.append('C:\\Users\\xyy82\\soft\\USB2AD7606BC\\temp-release\\customapp')
+# get path of current python script
+_cwd_ = os.path.dirname(os.path.abspath(__file__))
+_pyd_ = os.path.join(_cwd_, '..', '..', 'PyAD7606C')
+sys.path.append(_pyd_)
 from M3F20xm import M3F20xmADC, dbg_print
 
 class AD7606CReader(tssabc.SampleReader):

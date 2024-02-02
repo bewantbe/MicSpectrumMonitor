@@ -104,9 +104,13 @@ Roadmap:
 * callback to averaging
     + done
 * Test AD7606C
-* Colormap for spectrogram
+    + done, run but not stable.
+* properly close AD7606C
+* Add sample rate monitor in recthread.
+* Add update device in device list by using/writing tssampler functions.
 * Spectrogram plot log mode.
-* Add show FPS, ref to the fps counter design in pyqtgraph example
+* Colormap for spectrogram
+* Optimize spectrogram speed/cpu
 * link frequency axis of spectrum and spectrogram
 * consider support RF64 format for wav file, e.g.
   - using soundfile, https://pypi.org/project/soundfile/
@@ -589,6 +593,7 @@ class AnalyzerParameters:
     def set_fft_len(self, fft_len):
         ratio = self.size_hop / self.size_chunk
         self.size_chunk = fft_len
+        self.periodsize = fft_len // 2
         self.size_hop = int(np.round(fft_len * ratio))
 
     def load_mic_default(self):
@@ -599,8 +604,8 @@ class AnalyzerParameters:
         self.sample_rate  = 48000
         self.n_channel    = 2
         self.value_format = 'S16_LE'
-        self.bit_depth    = 16       # assume always S16_LE
-        self.periodsize   = 1024
+        self.bit_depth    = 16      # assume always S16_LE
+        self.periodsize   = 1024    # usually half the chunk size
         # allowable values
         self.dic_sample_rate = {    # might be generated
             '48kHz': 48000,
@@ -628,21 +633,21 @@ class AnalyzerParameters:
         self.sampler_id   = 'ad7606c'
         self.device       = 'default'
         self.device_name  = 'AD7606C'
-        self.sample_rate  = 48000
+        self.sample_rate  = 500000
         self.n_channel    = 8
         self.value_format = 'S16_LE' # depends on the range setup
         self.bit_depth    = 16       # assume always S16_LE
-        self.periodsize   = 4800
+        self.periodsize   = 4096
         self.dic_sample_rate = {    # might be generated
             '48kHz' : 48000,
             '250kHz': 250000,
             '500kHz': 500000,
         }
         # pipeline
-        self.channel_selected = [0, 1]
+        self.channel_selected = [0, 1, 2, 3, 4, 5, 6, 7]
         self.data_queue_max_size = 1000
         # for FFT analyzer
-        self.size_chunk   = 1024
+        self.size_chunk   = 8192
         self.size_hop     = self.size_chunk // 2
         self.n_ave        = 8
         self.spectrogram_duration = 1.0

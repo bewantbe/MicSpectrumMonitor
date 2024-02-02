@@ -1,6 +1,7 @@
 # Monitor for audio recorder
 
 import time
+import datetime
 import array
 
 def diff(a):
@@ -87,6 +88,9 @@ class sampleRateEstimator:
                 id0 -= 1
                 id1 += 1
             self.n_p_array[k] = self.n_cum_samples[-1-id1] - self.n_cum_samples[id0]
+            if self.n_p_array[k] == 0:
+                self.t_p_array[k] = float('inf')
+                continue
             t_p = (self.t_cum_samples[-1-id1] - self.t_cum_samples[id0]) / \
                   self.n_p_array[k]
             self.t_p_array[k] = t_p
@@ -107,7 +111,7 @@ class sampleRateEstimator:
 
         self.sr_last = 1.0 / self.t_p_array[k0]
 
-        w = self.sr_ave_weight + self.n_p_array[k0]
+        w = self.sr_ave_weight + self.n_p_array[k0] + 1e-100
         self.sr_ave = 1.0 / (self.sr_ave_weight/w * 1/self.sr_ave + self.n_p_array[k0]/w * self.t_p_array[k0])
         self.sr_ave_weight = w
 
@@ -130,7 +134,7 @@ class overrunChecker:
     # time unit is second
     def __init__(self, _sample_rate, _buffer_sample_size):
         self.time_update_old = 0
-        self.time_update_interval = 2.0
+        self.time_update_interval = 3.0
         self.time_started = 0
         self.last_overrun_time = 0
         self.n_total_samples = -1
@@ -157,7 +161,7 @@ class overrunChecker:
     def printStat(self, n_samples_from_time):
         f1 = n_samples_from_time / self.sample_rate_est
         f2 = self.n_total_samples / self.sample_rate_est
-        print("  Time: %s" % time.strftime("%F %T", time.gmtime(time.time())))
+        print("  Time: %s" % datetime.datetime.now().strftime("%F %T"))
         print("  Should read %.0f = %.3f sec." % (n_samples_from_time, f1))
         print("  Actual read %.0f = %.3f sec." % (self.n_total_samples, f2))
         print("  Difference  %.0f = %.3f sec." % \
