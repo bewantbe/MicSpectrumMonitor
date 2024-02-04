@@ -22,12 +22,12 @@ class AD7606CReader(tssabc.SampleReader):
     def init(self, sample_rate, periodsize=None, stream_callback=None, volt_range=[-2.5, 2.5], ends='single'):
         self.chunk_size = periodsize           # TODO: are they the same
         self.adc = M3F20xmADC(reset = True)
+        self.initilized = True
         self.adc.set_input_range(volt_range, ends)
         self.adc.set_sampling_rate(sample_rate)
         self.n_channel = self.adc.n_channel
         self.sample_rate = 1.0 / self.adc.get_sampling_interval()
         self.adc.start()
-        self.initilized = True
         return self
     
     def read(self, n_frames):
@@ -41,12 +41,12 @@ class AD7606CReader(tssabc.SampleReader):
         return (a - 0) / 32768.0
 
     def close(self):
-        if self.initilized:
-            self.adc.stop()
-            self.initilized = False
+        self.adc.close()
+        self.initilized = False
 
     def __del__(self):
-        self.close()
+        if self.initilized:
+            self.close()
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt

@@ -72,6 +72,7 @@ class recThread(threading.Thread):
                 self.buf_que.put(sample_d, True)
             else:
                 print('recThread: Buffer overrun.')
+        self.sampler.close()
         print('Thread ', self.name, ' exited.')
 
 # Analyze data

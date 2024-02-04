@@ -57,7 +57,8 @@ class MicReader(tssabc.SampleReader):
         self.initilized = False
 
     def __del__(self):
-        self.close()
+        if self.initilized:
+            self.close()
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
