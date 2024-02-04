@@ -66,8 +66,9 @@ class recThread(threading.Thread):
             self.conf['sample_rate'], self.conf['periodsize'])
         overrun_checker.start()
         while self.b_run:
-            sample_d = self.sampler.read(self.conf['periodsize'])
-            overrun_checker.updateState(len(sample_d))
+            #sample_d = self.sampler.read(self.conf['periodsize'])
+            sample_d = self.sampler.read()
+            #overrun_checker.updateState(len(sample_d))
             if not self.buf_que.full():
                 self.buf_que.put(sample_d, True)
             else:

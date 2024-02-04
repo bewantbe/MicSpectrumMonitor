@@ -38,7 +38,7 @@ class MicReader(tssabc.SampleReader):
         self.initilized = True
         return self
 
-    def read(self, n_frames):
+    def read(self, n_frames = None):
         # return formatted data: (n_frames, n_channel)
         if n_frames == None:
             n_frames = self.chunk_size
