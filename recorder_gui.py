@@ -10,8 +10,11 @@
 
 import os
 import shutil
+import json
 import datetime
 import time
+from time import perf_counter
+from copy import deepcopy
 import queue
 import wave
 import math
@@ -32,8 +35,11 @@ from pyqtgraph.Qt import (
 
 # enable logging
 logging.basicConfig(
-    level=logging.DEBUG
+    format = '%(levelname)s:%(message)s',
+    level = logging.DEBUG
 )
+logging.getLogger('matplotlib').setLevel(logging.CRITICAL)
+#logger = logging.getLogger('gui')
 
 from record_wave import (
     recThread,
@@ -106,6 +112,9 @@ Roadmap:
 * Test AD7606C
     + done, run but not stable.
 * properly close AD7606C
+  - done
+* Remember user settings, across sessions
+  - ...
 * Add sample rate monitor in recthread.
 * Add update device in device list by using/writing tssampler functions.
 * Spectrogram plot log mode.
@@ -528,18 +537,71 @@ def pretty_num_unit(v, n_prec = 4):
     return st
 
 class AnalyzerParameters:
-    def __init__(self):
+    def __init__(self, conf_path = 'preferences.conf'):
         self._ana_conf_keys = [
             'size_chunk', 'size_hop', 'n_ave', 'use_dBA']
+        self.devices_conf = deepcopy(self.devices_conf_default)
+        self.conf_path = conf_path
+        self.current_device = None
+        self.last_device = None
+        self.load_saved_conf()
 
-    def load_device_default(self, device_name):
-        if (device_name == 'mic') or (device_name == 'System mic'):
-            self.load_mic_default()
-        elif device_name == 'AD7606C':
-            self.load_AD7606C_default()
-        else:
-            raise ValueError(f'Unknown device name "{device_name}"')
-    
+    def load_saved_conf(self):
+        """load conf from file to namespace"""
+        if not os.path.isfile(self.conf_path):
+            logging.info(f'No saved configuration file "{self.conf_path}" found.')
+            return
+        with open(self.conf_path, 'r') as f:
+            d = json.load(f)
+        self.devices_conf.update(d)
+        self.last_device = self.devices_conf["current_device"]
+        # if bad file, just remove the file yourself
+
+    def dump_self_conf(self):
+        """current namespace to conf, then conf to file"""
+        self.self_to_dict()
+        with open(self.conf_path, 'w') as f:
+            json.dump(self.devices_conf, f, indent=2)
+
+    def load_device(self, device_name):
+        """save current to file, empty current, load to current"""
+        if self.current_device is not None:
+            self.dump_self_conf()
+            # off-load old conf
+            self.do_empty_self()
+        # load new conf
+        if device_name == 'System mic':  # deal with alias
+            device_name = 'mic'
+        self.dict_to_self(self.devices_conf_default[device_name])
+        self.current_device = device_name
+
+    def do_empty_self(self):
+        """empty current namespace"""
+        d = self.devices_conf[self.current_device]
+        for k in d:
+            if hasattr(self, k):
+                delattr(self, k)
+            else:
+                logging.warning(f'Key "{k}" not found in analyzer parameters'
+                                f'for device "{self.current_device}".')
+        self.last_device = self.current_device
+        self.current_device = None
+
+    def dict_to_self(self, conf):
+        """conf dict -> namespace"""
+        for k, v in conf.items():
+            setattr(self, k, v)
+
+    def self_to_dict(self):
+        # from current namespace to the dict
+        d = self.devices_conf[self.current_device]  # by ref
+        for k in d:
+            if hasattr(self, k):
+                d[k] = getattr(self, k)
+            else:
+                logging.warning(f'Key "{k}" not found in analyzer parameters.')
+        self.devices_conf["current_device"] = self.current_device
+
     def update_to_ui(self, ui):
         # if we have sampler_id defined, means we are initialized
         if not hasattr(self, 'sampler_id'):
@@ -593,67 +655,81 @@ class AnalyzerParameters:
     def set_fft_len(self, fft_len):
         ratio = self.size_hop / self.size_chunk
         self.size_chunk = fft_len
-        self.periodsize = fft_len // 2
+        min_t = 1.0 / 30  # 30 FPS at most
+        min_sp = 2 ** np.ceil(np.log2(min_t * self.sample_rate))
+        self.periodsize = max(fft_len // 2, min_sp)
         self.size_hop = int(np.round(fft_len * ratio))
 
-    def load_mic_default(self):
-        # for mic / ADC
-        self.sampler_id   = 'mic'
-        self.device       = 'default'
-        self.device_name  = 'System mic'
-        self.sample_rate  = 48000
-        self.n_channel    = 2
-        self.value_format = 'S16_LE'
-        self.bit_depth    = 16      # assume always S16_LE
-        self.periodsize   = 1024    # usually half the chunk size
-        # allowable values
-        self.dic_sample_rate = {    # might be generated
-            '48kHz': 48000,
-            '44.1kHz': 44100,
-            '32kHz': 32000,
-            '16kHz': 16000,
-            '8kHz': 8000,
-        }
-        # pipeline
-        self.channel_selected = [0, 1]
-        self.data_queue_max_size = 1000
-        # for FFT analyzer
-        self.size_chunk   = 1024
-        self.size_hop     = self.size_chunk // 2
-        self.n_ave        = 2
-        self.spectrogram_duration = 6.0
-        self.use_dBA      = False
-        # TODO: calibration_path
-        self._adc_conf_keys = [
-            'sampler_id', 'device', 'sample_rate', 'n_channel',
-            'value_format', 'periodsize']
+    def render_time_cost_estimation(self):
+        """time cost coefficient for each frame"""
+        # for wave, spectrum and rms
+        t_wave = self.n_channel * self.size_chunk
+        t_spum = self.n_channel * self.size_chunk
+        n_t = self.spectrogram_duration / (self.size_hop / self.sample_rate)
+        t_rms  = self.n_channel * n_t
+        t_spam = self.size_chunk * n_t
+        return t_wave, t_spum, t_rms, t_spam
 
-    def load_AD7606C_default(self):
-        # for mic / ADC
-        self.sampler_id   = 'ad7606c'
-        self.device       = 'default'
-        self.device_name  = 'AD7606C'
-        self.sample_rate  = 500000
-        self.n_channel    = 8
-        self.value_format = 'S16_LE' # depends on the range setup
-        self.bit_depth    = 16       # assume always S16_LE
-        self.periodsize   = 4096
-        self.dic_sample_rate = {    # might be generated
-            '48kHz' : 48000,
-            '250kHz': 250000,
-            '500kHz': 500000,
+    devices_conf_default = {
+        "mic": {
+            # for mic / ADC
+            "sampler_id"   : 'mic',
+            "device"       : 'default',
+            "device_name"  : 'System mic',
+            "sample_rate"  : 48000,
+            "n_channel"    : 2,
+            "value_format" : 'S16_LE',
+            "bit_depth"    : 16,      # assume always S16_LE
+            "periodsize"   : 1024,    # usually half the chunk size
+            # allowable values
+            "dic_sample_rate" : {    # might be generated
+                '48kHz': 48000,
+                '44.1kHz': 44100,
+                '32kHz': 32000,
+                '16kHz': 16000,
+                '8kHz': 8000,
+            },
+            # pipeline
+            "channel_selected" : [0, 1],
+            "data_queue_max_size" : 1000,
+            # for FFT analyzer
+            "size_chunk"   : 1024,
+            "size_hop"     : 1024 // 2,
+            "n_ave"        : 2,
+            "spectrogram_duration" : 6.0,
+            "use_dBA"      : False,
+            # TODO: calibration_path
+            "_adc_conf_keys" : [
+                'sampler_id', 'device', 'sample_rate', 'n_channel',
+                'value_format', 'periodsize'],
+        },
+        "AD7606C": {
+            "sampler_id"   : 'ad7606c',
+            "device"       : 'default',
+            "device_name"  : 'AD7606C',
+            "sample_rate"  : 500000,
+            "n_channel"    : 8,
+            "value_format" : 'S16_LE', # depends on the range setup
+            "bit_depth"    : 16,       # assume always S16_LE
+            "periodsize"   : 4096,
+            "dic_sample_rate" : {    # might be generated
+                '48kHz' : 48000,
+                '250kHz': 250000,
+                '500kHz': 500000,
+            },
+            # pipeline
+            "channel_selected" : [0, 1, 2, 3, 4, 5, 6, 7],
+            "data_queue_max_size" : 1000,
+            # for FFT analyzer
+            "size_chunk"   : 8192,
+            "size_hop"     : 8192 // 2,
+            "n_ave"        : 8,
+            "spectrogram_duration" : 1.0,
+            "use_dBA"      : False,
+            "_adc_conf_keys" : [
+                'sampler_id', 'sample_rate', 'periodsize'],
         }
-        # pipeline
-        self.channel_selected = [0, 1, 2, 3, 4, 5, 6, 7]
-        self.data_queue_max_size = 1000
-        # for FFT analyzer
-        self.size_chunk   = 8192
-        self.size_hop     = self.size_chunk // 2
-        self.n_ave        = 8
-        self.spectrogram_duration = 1.0
-        self.use_dBA      = False
-        self._adc_conf_keys = [
-            'sampler_id', 'sample_rate', 'periodsize']
+    }
 
 class AudioSaverManager:
     """ Manage the UI related to audio saving and manage wav saver."""
@@ -889,12 +965,14 @@ class AudioPipeline():
         
 def PopOldEventsAndExecute(func):
     """Used to let the padding events to be executed in the main thread, then
-       excute the func in the main thread.
+       excute the `func` in the main thread.
        Usually used in restarting the audio pipeline, for clearing the padding
        graph plots, so that new (possibly incompatable) data can be forward to
        the plots.
     """
     QtCore.QTimer.singleShot(0, func)
+    # alternative: QtCore.QCoreApplication.processEvents()
+    # app.processEvents(QtCore.QEventLoop.ProcessEventsFlag.AllEvents)
 
 class MainWindow(QtWidgets.QMainWindow):
     """Main Window for monitoring and recording the Mic/ADC signals."""
@@ -1010,7 +1088,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def start_data_pipeline(self, dev_name = None):
         # start new device
         if dev_name is not None:
-            self.ana_param.load_device_default(dev_name)
+            self.ana_param.load_device(dev_name)
             self.ana_param.update_to_ui(self.ui_dock4)
         else:
             # assume ana_param is ready (modified in the UI)
@@ -1031,6 +1109,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.spectrogram_plot.init_param(analyzer_data, sz_hop,
                                          self.ana_param.spectrogram_duration)
         self.spectrogram_plot.config_plot()
+
+        # set FPS limiters
+        #t_wave, t_spum, t_rms, t_spam = self.ana_param.render_time_cost_estimation()
+        #self.fps_limiter_wave.setFPSLimit(min(
+        #    30,
+        #    1.0 / t_wave
+        #    ))
 
         # set to false to start the monitoring
         self.ui_dock4.pushButton_mon.setChecked(False)
@@ -1128,13 +1213,16 @@ class MainWindow(QtWidgets.QMainWindow):
         rms_db, volt, fqs, spectrum_db = obj
         # ploting
         if self.fps_limiter_wave.checkFPSAllow():
+            t_start = perf_counter()
             self.waveform_plot.update(volt)
+            t_end = perf_counter()
+
         if spectrum_db is not None:
             if self.fps_limiter_fft.checkFPSAllow():
                 self.rms_plot.update()
                 self.spectrum_plot.update(fqs, spectrum_db)
                 self.spectrogram_plot.update()
-    
+        
     def update_current_datetime(self):
         now = datetime.datetime.now()
         self.ui_dock4.label_datetime.setText(now.strftime("%Y-%m-%d %H:%M:%S"))
@@ -1143,6 +1231,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # TODO: disable the recorder first
         self.audio_pipeline.close(wait=False)
         self.audio_saver_manager.close()
+        self.ana_param.dump_self_conf()
         event.accept()  # Accept the close event
 
     def take_screen_shot(self):
@@ -1152,6 +1241,17 @@ class MainWindow(QtWidgets.QMainWindow):
         now = datetime.datetime.now()
         png_path = now.strftime("winshot_%Y-%m-%d_%H%M%S.png")
         screenshot.save(png_path, 'png')
+
+_t0 = None
+
+def tic():
+    global _t0
+    _t0 = time.process_time_ns() / 1e9
+
+def toc(s):
+    global _t0
+    t = time.process_time_ns() / 1e9 - _t0
+    print(f'time = {t:.6f} s, ({s})')
 
 if __name__ == '__main__':
     app = pg.mkQApp("DockArea Example")

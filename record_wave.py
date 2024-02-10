@@ -98,7 +98,7 @@ class analyzerData():
             self.volt_zero = np.zeros(n_channel) # low pass to folow the mean volt
             # let the time constant be 1.0 second
             dt = sz_chunk / sample_rate
-            tau = 1.0
+            tau = 1.0  # tau=1 : 12dB per second
             self.volt_zero_weight = np.exp(-dt / tau * np.log(2))
             self.volt_zero_auto = True
         else:
