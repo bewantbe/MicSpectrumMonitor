@@ -115,6 +115,8 @@ Roadmap:
   - done
 * Remember user settings, across sessions
   - ...
+* More smart frame rate control
+  - ...
 * Add sample rate monitor in recthread.
 * Add update device in device list by using/writing tssampler functions.
 * Spectrogram plot log mode.
@@ -551,6 +553,7 @@ class AnalyzerParameters:
         if not os.path.isfile(self.conf_path):
             logging.info(f'No saved configuration file "{self.conf_path}" found.')
             return
+        logging.info(f'loading conf from file "{self.conf_path}"')
         with open(self.conf_path, 'r') as f:
             d = json.load(f)
         self.devices_conf.update(d)
@@ -656,19 +659,19 @@ class AnalyzerParameters:
         ratio = self.size_hop / self.size_chunk
         self.size_chunk = fft_len
         min_t = 1.0 / 30  # 30 FPS at most
-        min_sp = 2 ** np.ceil(np.log2(min_t * self.sample_rate))
+        min_sp = int(2 ** np.ceil(np.log2(min_t * self.sample_rate)))
         self.periodsize = max(fft_len // 2, min_sp)
         self.size_hop = int(np.round(fft_len * ratio))
 
     def render_time_cost_estimation(self):
         """time cost coefficient for each frame"""
         # for wave, spectrum and rms
-        t_wave = self.n_channel * self.size_chunk
-        t_spum = self.n_channel * self.size_chunk
-        n_t = self.spectrogram_duration / (self.size_hop / self.sample_rate)
-        t_rms  = self.n_channel * n_t
-        t_spam = self.size_chunk * n_t
-        return t_wave, t_spum, t_rms, t_spam
+        t_wave = 2.5  + 1.85e-4 * self.n_channel / 2 * self.size_chunk
+        t_spum = 1.55 + 0.79e-4 * self.n_channel / 2 * self.size_chunk
+        #n_t = self.spectrogram_duration / (self.size_hop / self.sample_rate)
+        t_rms  = 2.95 + 1.15e-4 * self.n_channel / 2 * self.size_chunk
+        t_spam = 2.15 + 0.246e-4 * self.size_chunk
+        return t_wave, t_rms, t_spum, t_spam
 
     devices_conf_default = {
         "mic": {
@@ -983,8 +986,9 @@ class MainWindow(QtWidgets.QMainWindow):
     # See also pyqtgraph's example console_exception_inspection.py.
     graph_data_updated = pg.QtCore.Signal(object)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, qapp, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
+        self.qapp = qapp
 
         ## setup window
         area = DockArea()
@@ -1076,6 +1080,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.fps_limiter_wave = FPSLimiter(30)        # for limiting update_graph
         self.fps_limiter_fft  = FPSLimiter(30)        # for limiting update_graph
+        self.fpsLastUpdate = tic()
+        self.elapsed_wave = [1e-3]
+        self.elapsed_spum = [1e-3]
+        self.elapsed_rms = [1e-3]
+        self.elapsed_spam = [1e-3]
 
         default_device_idx = 0
         self.on_combobox_dev_activated(default_device_idx)
@@ -1111,11 +1120,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.spectrogram_plot.config_plot()
 
         # set FPS limiters
-        #t_wave, t_spum, t_rms, t_spam = self.ana_param.render_time_cost_estimation()
-        #self.fps_limiter_wave.setFPSLimit(min(
-        #    30,
-        #    1.0 / t_wave
-        #    ))
+        t_wave, t_rms, t_spum, t_spam = self.ana_param.render_time_cost_estimation()
+        fps_lim = min(
+            30,
+            500.0 / (t_wave + t_rms + t_spum + t_spam)
+            )
+        logging.info(f'FPS limit: {fps_lim}')
+        self.fps_limiter_wave.dt = 1.0 / fps_lim
+        self.fps_limiter_fft.dt  = 1.0 / fps_lim
 
         # set to false to start the monitoring
         self.ui_dock4.pushButton_mon.setChecked(False)
@@ -1213,15 +1225,58 @@ class MainWindow(QtWidgets.QMainWindow):
         rms_db, volt, fqs, spectrum_db = obj
         # ploting
         if self.fps_limiter_wave.checkFPSAllow():
-            t_start = perf_counter()
             self.waveform_plot.update(volt)
-            t_end = perf_counter()
 
         if spectrum_db is not None:
             if self.fps_limiter_fft.checkFPSAllow():
                 self.rms_plot.update()
                 self.spectrum_plot.update(fqs, spectrum_db)
                 self.spectrogram_plot.update()
+
+    def update_graph_t_measure(self, obj):
+        if not self.b_monitor_on:
+            return
+        # usually called from main thread
+        rms_db, volt, fqs, spectrum_db = obj
+        # ploting
+        if self.fps_limiter_wave.checkFPSAllow():
+            tic()
+            self.waveform_plot.update(volt)
+            self.qapp.processEvents(QtCore.QEventLoop.ProcessEventsFlag.AllEvents)
+            self.elapsed_wave.append(toc())
+
+        if spectrum_db is not None:
+            if self.fps_limiter_fft.checkFPSAllow():
+                tic()
+                self.rms_plot.update()
+                self.qapp.processEvents(QtCore.QEventLoop.ProcessEventsFlag.AllEvents)
+                self.elapsed_rms.append(toc())
+                tic()
+                self.spectrum_plot.update(fqs, spectrum_db)
+                self.qapp.processEvents(QtCore.QEventLoop.ProcessEventsFlag.AllEvents)
+                self.elapsed_spum.append(toc())
+                tic()
+                self.spectrogram_plot.update()
+                self.qapp.processEvents(QtCore.QEventLoop.ProcessEventsFlag.AllEvents)
+                self.elapsed_spam.append(toc())
+
+        t_end = tic()
+        # update fps at most once every 0.2 secs
+        if t_end - self.fpsLastUpdate > 5.0:
+            self.fpsLastUpdate = t_end
+            fps_wave = 1 / np.mean(self.elapsed_wave)
+            fps_rms  = 1 / np.mean(self.elapsed_rms)
+            fps_spum = 1 / np.mean(self.elapsed_spum)
+            fps_spam = 1 / np.mean(self.elapsed_spam)
+            print(f'{1000/fps_wave:0.5f} ms (wave)')
+            print(f'{1000/fps_rms:0.5f} ms (rms)')
+            print(f'{1000/fps_spum:0.5f} ms (spum)')
+            print(f'{1000/fps_spam:0.5f} ms (spam)')
+            print('---')
+            self.elapsed_wave = []
+            self.elapsed_rms = []
+            self.elapsed_spum = []
+            self.elapsed_spam = []
         
     def update_current_datetime(self):
         now = datetime.datetime.now()
@@ -1246,14 +1301,19 @@ _t0 = None
 
 def tic():
     global _t0
-    _t0 = time.process_time_ns() / 1e9
+    #_t0 = time.process_time_ns() / 1e9
+    _t0 = perf_counter()
+    return _t0
 
-def toc(s):
+def toc(s = None):
     global _t0
-    t = time.process_time_ns() / 1e9 - _t0
-    print(f'time = {t:.6f} s, ({s})')
+    #t = time.process_time_ns() / 1e9 - _t0
+    t = perf_counter() - _t0
+    if s:
+        print(f'time = {t:.6f} s, ({s})')
+    return t
 
 if __name__ == '__main__':
-    app = pg.mkQApp("DockArea Example")
-    main_window = MainWindow()
+    app = pg.mkQApp("Spectrum Analyzer - docked plots")
+    main_window = MainWindow(qapp = app)
     pg.exec()
