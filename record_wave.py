@@ -262,24 +262,32 @@ class analyzerData():
 class FPSLimiter:
     """ fps limiter """
     def __init__(self, fps):
-        # for rejecting frequent refresh request
-        self.time_to_refresh = perf_counter()
-        # for load estimation
-        self.dt_estimate_load = 1.0
-        self.t_last_estimate_load = perf_counter()
-        self.T_relax = 2.0
-        self.f_request = 0
-        self.f_rendered = 0
-        self.f_allowed = 0
-        self.f_to_be_render = 0
-        self.f_delay_tol = 3
-        self.rate_user = fps
-        self.rate_user_max = fps
-        self.rate_max_real = float('Nan')
-        self._update_state(1.0)
         self.lock = threading.Lock()
+        self.dt_estimate_load = 1.0
+        self.T_relax = 2.0
+        self.rate_user_max = fps
+        self.f_delay_tol = 3
+        self.clear()
+        self._update_state(1.0)
     
+    def clear(self):
+        self.time_to_refresh = perf_counter()
+        self.t_last_estimate_load = perf_counter()
+        with self.lock:
+            # for rejecting frequent refresh request
+            self.rate_user = self.rate_user_max
+            # for load estimation
+            self.rate_max_real = float('Nan')
+            # counters reset
+            self.f_request = 0
+            self.f_allowed = 0
+            self.f_rendered = 0
+            self.f_yet_to_render = 0
+
     def setFPSLimit(self, fps):
+        # note: `rate_user` should only viewed as the max allowed rate
+        # in practice, due to frame timing jitter, the real rate is likely lower
+        # say fps_user_max = 90, fps request = 93, real fps = 81
         self.rate_user = fps
         self.rate_user_max = fps
     
@@ -296,7 +304,8 @@ class FPSLimiter:
             return True
 
     def notifyRenderFinished(self):
-        self.f_rendered += 1
+        with self.lock:
+            self.f_rendered += 1
         time_now = perf_counter()
         if time_now <= self.t_last_estimate_load + self.dt_estimate_load:
             # not yet time to estimate load
@@ -304,9 +313,9 @@ class FPSLimiter:
         # time to estimate
         t_intv = time_now - self.t_last_estimate_load
         self.t_last_estimate_load = time_now
-        self.f_to_be_render += self.f_allowed - self.f_rendered
-        print(f'f_to_be_rendered = {self.f_to_be_render}, f_allowed = {self.f_allowed}, f_rendered = {self.f_rendered}')
         with self.lock:
+            self.f_yet_to_render += self.f_allowed - self.f_rendered
+            print(f'FPSLimiter: f_request = {self.f_request}, f_allowed = {self.f_allowed}, f_rendered = {self.f_rendered}')
             self._update_state(t_intv)
             self._state_action(t_intv)
             # counters reset
@@ -317,23 +326,23 @@ class FPSLimiter:
     def _update_state(self, t_intv):
         rate_request = self.f_request / t_intv
         if rate_request <= self.rate_user:
-            if self.f_to_be_render <= self.f_delay_tol:
+            if self.f_yet_to_render <= self.f_delay_tol:
                 self.state = 'sparse'
             else:
                 self.state = 'full'
         else:
-            if self.f_to_be_render > self.f_delay_tol:
+            if self.f_yet_to_render > self.f_delay_tol:
                 self.state = 'full'
             else:
                 self.state = 'clamped'
-        print(f'FPSLimiter: rate_request = {rate_request:.1f}, state = {self.state}')
+        print(f'----: rate_request = {rate_request:.1f}, f_yet_to_render = {self.f_yet_to_render}, state = {self.state}')
         self.state_updated = True
     
     def _state_action(self, t_intv):
         if self.state == 'full':
             if self.state_updated:
                 # re-estimate real frame rate
-                f_intv = self.f_rendered / self.t_intv
+                f_intv = self.f_rendered / t_intv
                 if math.isnan(self.rate_max_real):
                     self.rate_max_real = f_intv
                 else:
@@ -342,24 +351,24 @@ class FPSLimiter:
                 # set rate limit, so that renderer catch up with allowed frames
                 self.rate_user = max(self.rate_max_real / 2, 
                     self.rate_max_real - \
-                    (self.f_to_be_render - self.f_delay_tol) / self.T_relax)
+                    (self.f_yet_to_render - self.f_delay_tol) / self.T_relax)
                 # don't check and change during relax time
                 self.t_last_estimate_load += self.T_relax
-                print(f'FPSLimiter: Update r_u={self.rate_user:.1f}, r_max_real={self.rate_max_real:.1f}')
+                print(f'-----: Update r_u={self.rate_user:.1f}, r_max_real={self.rate_max_real:.1f}')
             else:
                 pass
-        elif self.rate_user < self.rate_user_max:
+        elif self.rate_user < self.rate_user_max - 0.5:
             if self.rate_user < self.rate_max_real - 0.5:
                 # recover from relax
                 k = 0.5
                 self.rate_user = k * self.rate_max_real + (1-k) * self.rate_user
-                print(f'FPSLimiter: Update r_u={self.rate_user:.2g}')
+                print(f'-----: Update r_u={self.rate_user:.2g}')
             else:
                 # try push the real frame rate limit
                 if self.rate_max_real < self.rate_user_max:
                     self.rate_max_real = min(1.05 * self.rate_max_real,
                                              self.rate_user_max)
-                print(f'FPSLimiter: Update r_max_real={self.rate_max_real:.3g}')
+                print(f'-----: Update r_max_real={self.rate_max_real:.2g}')
         else:
             self.rate_user = self.rate_user_max
 

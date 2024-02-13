@@ -1027,7 +1027,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.dock5 = dock5
 
         # for limiting update_graph
-        self.fps_limiter_wave = FPSLimiter(30)        
+        self.fps_limiter = FPSLimiter(60)
+        self.fps_limiter_wave = FPSLimiter(30)
         self.fps_limiter_fft  = FPSLimiter(30)
 
         ## Add widgets into each dock
@@ -1135,24 +1136,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.spectrogram_plot.config_plot()
 
         # set FPS limiters
-        t_wave, t_rms, t_spum, t_spam = self.ana_param.render_time_cost_estimation()
-        fps_lim = min(
-            30,
-            500.0 / (t_wave + t_rms + t_spum + t_spam)
-            )
-        logging.info(f'FPS limit: {fps_lim}')
-        self.fps_limiter_wave.dt = 1.0 / fps_lim
-        self.fps_limiter_fft.dt  = 1.0 / fps_lim
+        #t_wave, t_rms, t_spum, t_spam = self.ana_param.render_time_cost_estimation()
+        #fps_lim = min(
+        #    30,
+        #    500.0 / (t_wave + t_rms + t_spum + t_spam)
+        #    )
+        #logging.info(f'FPS limit: {fps_lim}')
+        #self.fps_limiter_wave.dt = 1.0 / fps_lim
+        #self.fps_limiter_fft.dt  = 1.0 / fps_lim
 
         # set to false to start the monitoring
         self.ui_dock4.pushButton_mon.setChecked(False)
         self.start_stop_monitoring(False)
 
+        self.fps_limiter.clear()
+
         self.audio_pipeline.start(
             self.audio_saver_manager,
             self.rms_plot.feed_rms,
             self.spectrogram_plot.feed_spectrum,
-            self.graph_data_updated.emit
+            self.update_request
         )
         logging.info('rec restarted')
 
@@ -1232,22 +1235,27 @@ class MainWindow(QtWidgets.QMainWindow):
             btn.setText('Stop monitoring')
             #btn.setStyleSheet("background-color: white")
 
-    # TODO: annotate callbacks using decorator
-    def update_graph(self, obj):
+    def update_request(self, obj):
+        """Called from other thread"""
         if not self.b_monitor_on:
             return
-        # usually called from main thread
+        if self.fps_limiter.checkFPSAllow():
+            # signal main thread to call update_graph
+            self.graph_data_updated.emit(obj)
+
+    # TODO: annotate callbacks using decorator
+    def update_graph(self, obj):
+        # must be called in main thread
         rms_db, volt, fqs, spectrum_db = obj
         # ploting
-        if self.fps_limiter_wave.checkFPSAllow():
-            self.waveform_plot.update(volt)
+        self.waveform_plot.update(volt)
 
         if spectrum_db is not None:
-            if self.fps_limiter_fft.checkFPSAllow():
-                self.rms_plot.update()
-                self.spectrum_plot.update(fqs, spectrum_db)
-                self.spectrogram_plot.update()
-                #self.fps_limiter_fft.notifyRenderFinished()
+            self.rms_plot.update()
+            self.spectrum_plot.update(fqs, spectrum_db)
+            self.spectrogram_plot.update()
+
+        self.fps_limiter.notifyRenderFinished()
 
     def update_graph_t_measure(self, obj):
         if not self.b_monitor_on:
