@@ -252,23 +252,36 @@ def time_to_HHMMSSm(t):
 
 class CustomPlotWidget(pg.PlotWidget):
     """Might be used to replace PlotWidget to measure plot performance."""
-    def __init__(self, *args, fps_counter, **kwargs):
+    def __init__(self, *args, fps_counter_notify, **kwargs):
         super().__init__(*args, **kwargs)
-        self._fps_counter = fps_counter
+        self._fps_counter_notify = fps_counter_notify
+        self._tick_count = 0
+        self._tick_count_old = 0
+        self._lock_cnt = threading.Lock()
+
+    def frame_tick_inc(self):
+        with self._lock_cnt:
+            self._tick_count += 1
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        self._fps_counter.notifyRenderFinished()
+        with self._lock_cnt:
+            n_advance = self._tick_count - self._tick_count_old
+            self._tick_count_old = self._tick_count
+        for ii in range(n_advance):
+            # do not count repeated paint events in the same frame
+            # but also count skipped paint event(s)
+            self._fps_counter_notify()
 
 class WaveformPlot:
     def __init__(self):
         self.auto_range = True
     
-    def init_to_widget(self):
-    #def init_to_widget(self, fps_counter):
+    #def init_to_widget(self):
+    def init_to_widget(self, fps_counter_notify):
         #dock1.hideTitleBar()
-        plot_widget = pg.PlotWidget()
-        #plot_widget = CustomPlotWidget(fps_counter = fps_counter)
+        #plot_widget = pg.PlotWidget()
+        plot_widget = CustomPlotWidget(fps_counter_notify = fps_counter_notify)
         plot_data_item = plot_widget.plot(
             np.random.normal(size=100),
             name = 'ch1')
@@ -310,6 +323,7 @@ class WaveformPlot:
         return rg  # x, y, width, height
 
     def update(self, volt):
+        self.plot_widget.frame_tick_inc()
         for i in range(self.n_channel):
             self.plot_data_items[i].setData(volt[:,i])
 
@@ -1035,8 +1049,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         ## Dock 1
         self.waveform_plot = WaveformPlot()
-        #dock1.addWidget(self.waveform_plot.init_to_widget(self.fps_limiter_wave))
-        dock1.addWidget(self.waveform_plot.init_to_widget())
+        dock1.addWidget(self.waveform_plot.init_to_widget(self.fps_limiter.notifyRenderFinished))
+        #dock1.addWidget(self.waveform_plot.init_to_widget())
 
         ## Dock 2
         self.spectrum_plot = SpectrumPlot()
@@ -1255,7 +1269,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.spectrum_plot.update(fqs, spectrum_db)
             self.spectrogram_plot.update()
 
-        self.fps_limiter.notifyRenderFinished()
+        #self.fps_limiter.notifyRenderFinished()
 
     def update_graph_t_measure(self, obj):
         if not self.b_monitor_on:

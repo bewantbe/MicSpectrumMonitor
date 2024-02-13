@@ -273,6 +273,7 @@ class FPSLimiter:
     def clear(self):
         self.time_to_refresh = perf_counter()
         self.t_last_estimate_load = perf_counter()
+        self.t_wait_extra = 0.0
         with self.lock:
             # for rejecting frequent refresh request
             self.rate_user = self.rate_user_max
@@ -307,7 +308,8 @@ class FPSLimiter:
         with self.lock:
             self.f_rendered += 1
         time_now = perf_counter()
-        if time_now <= self.t_last_estimate_load + self.dt_estimate_load:
+        if time_now <= self.t_last_estimate_load + self.dt_estimate_load + \
+            self.t_wait_extra:
             # not yet time to estimate load
             return
         # time to estimate
@@ -339,6 +341,7 @@ class FPSLimiter:
         self.state_updated = True
     
     def _state_action(self, t_intv):
+        self.t_wait_extra = 0.0
         if self.state == 'full':
             if self.state_updated:
                 # re-estimate real frame rate
@@ -353,7 +356,7 @@ class FPSLimiter:
                     self.rate_max_real - \
                     (self.f_yet_to_render - self.f_delay_tol) / self.T_relax)
                 # don't check and change during relax time
-                self.t_last_estimate_load += self.T_relax
+                self.t_wait_extra = self.T_relax
                 print(f'-----: Update r_u={self.rate_user:.1f}, r_max_real={self.rate_max_real:.1f}')
             else:
                 pass
