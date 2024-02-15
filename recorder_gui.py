@@ -114,11 +114,12 @@ Roadmap:
 * properly close AD7606C
   - done
 * More smart frame rate control
-  - ...
+  - done, but still do not know where is the slow part in the whole pipeline
 * Remember user settings, across sessions
   - ...
-* Add sample rate monitor in recthread.
 * Add update device in device list by using/writing tssampler functions.
+  - such as sine, white noise.
+* Add sample rate monitor in recthread.
 * Spectrogram plot log mode.
 * Colormap for spectrogram
 * Optimize spectrogram speed/cpu
@@ -127,6 +128,11 @@ Roadmap:
   - using soundfile, https://pypi.org/project/soundfile/
   - using pysndfile, https://pypi.org/project/pysndfile/, https://forge-2.ircam.fr/roebel/pysndfile
 """
+
+def mk_list(a):
+    if isinstance(a, list):
+        return a
+    return [a]
 
 class AudioSaver:
     def __init__(self):
@@ -330,6 +336,8 @@ class WaveformPlot:
 class SpectrumPlot:
     def __init__(self):
         self.log_mode = False
+        self.data_feed_count = 0
+        self.data_feed_count_old = 0
     
     def init_to_widget(self):
         #dock2.hideTitleBar()
@@ -369,6 +377,9 @@ class SpectrumPlot:
                 pen = self.lut[i],
                 name = f'ch{i+1}')
             self.plot_data_items.append(pl)
+        self.saved_spectrum_db = self.lower_bound_spectrum_db * \
+                                 np.ones((self.n_freq, self.n_channel))
+        self.data_lock = threading.Lock()
 
     def set_log_mode(self, log_mode):
         self.log_mode = log_mode
@@ -385,14 +396,30 @@ class SpectrumPlot:
             self.max_freq, 5 - self.lower_bound_spectrum_db]))
         return rg  # x, y, width, height
 
-    def update(self, fqs, spectrum_db):
-        for i in range(self.n_channel):
-            self.plot_data_items[i].setData(x = fqs, y = spectrum_db[:,i])
-            #self.plot_data_items.setData(x = self.x_freq, y = spectrum_db)
+    def feed_spectrum(self, spectrum_db):
+        with self.data_lock:
+            self.saved_spectrum_db[:] = spectrum_db
+            self.data_feed_count += 1
+
+    def update(self, fqs = None, spectrum_db = None):
+        if (fqs is not None) and (spectrum_db is not None):
+            for i in range(self.n_channel):
+                self.plot_data_items[i].setData(x = fqs, y = spectrum_db[:,i])
+        else:
+            with self.data_lock:
+                n_frames_feed = self.data_feed_count - self.data_feed_count_old
+                if n_frames_feed == 0:
+                    return
+                self.data_feed_count_old = self.data_feed_count
+                sp_db = self.saved_spectrum_db.copy()
+            for i in range(self.n_channel):
+                self.plot_data_items[i].setData(x = self.x_freq, y = sp_db[:,i])
 
 class RMSPlot:
     def __init__(self):
         self.fixed_range = False
+        self.data_feed_count = 0
+        self.data_feed_count_old = 0
 
     def init_to_widget(self):
         #dock2.hideTitleBar()
@@ -458,12 +485,26 @@ class RMSPlot:
         self.n_ave = n_ave
     
     def feed_rms(self, rms_db):
+        #print('dB:', rms_db)
+        res_n = 10  # length of each dB bar
+        bl = -70
+        bu = -20
+        dbu_scaled = list(map(int, np.clip((rms_db - bl)/(bu-bl) * res_n, 0, res_n)))
+        for dbu_s in dbu_scaled:
+            print('#'*dbu_s + ' '*(res_n - dbu_s), end='|')
+        print()
+
         with self.data_lock:
             self.arr_rms_db[self.loop_cursor,:] = rms_db
+            self.data_feed_count += 1
         self.loop_cursor = (self.loop_cursor + 1) % self.rms_len
     
     def update(self):
         with self.data_lock:
+            n_frames_feed = self.data_feed_count - self.data_feed_count_old
+            if n_frames_feed == 0:
+                return
+            self.data_feed_count_old = self.data_feed_count
             arr = self.arr_rms_db.copy()       # is this minimize the race condition?
         for i in range(self.n_channel):
             self.plot_data_items[i].setData(x = self.n_ave * self.arr_t, y = arr[:,i])
@@ -471,6 +512,8 @@ class RMSPlot:
 class SpectrogramPlot:
     def __init__(self):
         self.log_mode = False
+        self.data_feed_count = 0
+        self.data_feed_count_old = 0
 
     def init_to_widget(self):
         # called in main thread init
@@ -521,6 +564,7 @@ class SpectrogramPlot:
         with self.spam_lock:
             self.spam_bmp[self.spam_loop_cursor,:] = spectrum[:,0]
             self.spam_loop_cursor = (self.spam_loop_cursor + 1) % self.spam_len
+            self.data_feed_count += 1
         return self.spam_bmp
     
     def get_spectrogram_bmp(self):
@@ -532,6 +576,10 @@ class SpectrogramPlot:
     def update(self):
         spam_bmp = self.get_spectrogram_bmp()
         with self.spam_lock:                   # TODO: maybe I don't need this lock
+            n_frames_feed = self.data_feed_count - self.data_feed_count_old
+            if n_frames_feed == 0:
+                return
+            self.data_feed_count_old = self.data_feed_count
             self.img_item.setImage(spam_bmp,
                 rect=[0, 0, self.n_ave * self.spam_bmp_t_duration, self.max_freq])
 
@@ -951,7 +999,7 @@ class AudioPipeline():
     def start(self, audio_saver_manager, cb_update_rms, cb_update_spectrum, cb_plot):
         self.audio_saver_manager = audio_saver_manager
         self.cb_update_rms = cb_update_rms
-        self.cb_update_spectrum = cb_update_spectrum
+        self.cb_update_spectrum = mk_list(cb_update_spectrum)
         self.cb_plot = cb_plot
         self.rec_thread.start()
         self.chunk_process_thread.start()
@@ -983,7 +1031,8 @@ class AudioPipeline():
             rms_db = self.analyzer_data.get_FFT_RMS_dBA()
             fqs = self.analyzer_data.fqs
             spectrum_db = self.analyzer_data.get_spectrum_dB()
-            self.cb_update_spectrum(spectrum_db)
+            for cb in self.cb_update_spectrum:
+                cb(spectrum_db)
             self.cb_update_rms(rms_db)
         else:
             rms_db = None
@@ -1105,6 +1154,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.datetime_update_timer = QtCore.QTimer()
         self.datetime_update_timer.timeout.connect(self.update_current_datetime)
         self.datetime_update_timer.start(200)
+        # basic stat timer
+        self.report_stat_timer = QtCore.QTimer()
+        self.report_stat_timer.timeout.connect(self.print_basic_stat)
+        self.report_stat_timer.start(2000)
         # connect the custom closeEvent
         self.closeEvent = self.custom_close_event
 
@@ -1168,7 +1221,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.audio_pipeline.start(
             self.audio_saver_manager,
             self.rms_plot.feed_rms,
-            self.spectrogram_plot.feed_spectrum,
+            [self.spectrum_plot.feed_spectrum,
+             self.spectrogram_plot.feed_spectrum],
             self.update_request
         )
         logging.info('rec restarted')
@@ -1264,10 +1318,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # ploting
         self.waveform_plot.update(volt)
 
-        if spectrum_db is not None:
-            self.rms_plot.update()
-            self.spectrum_plot.update(fqs, spectrum_db)
-            self.spectrogram_plot.update()
+        self.rms_plot.update()
+        self.spectrum_plot.update()
+        self.spectrogram_plot.update()
 
         #self.fps_limiter.notifyRenderFinished()
 
@@ -1319,6 +1372,12 @@ class MainWindow(QtWidgets.QMainWindow):
     def update_current_datetime(self):
         now = datetime.datetime.now()
         self.ui_dock4.label_datetime.setText(now.strftime("%Y-%m-%d %H:%M:%S"))
+
+    def print_basic_stat(self):
+        return
+        print('--- Stat ---')
+        if self.audio_pipeline is not None:
+            print(f'Audio queue size: {self.audio_pipeline.buf_queue.qsize()}')
 
     def custom_close_event(self, event):
         # TODO: disable the recorder first
