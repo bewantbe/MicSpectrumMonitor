@@ -786,6 +786,7 @@ class AnalyzerParameters:
             "device_name"  : 'AD7606C',
             "sample_rate"  : 500000,
             "n_channel"    : 8,
+            "volt_range"   : [0, 5],
             "value_format" : 'S16_LE', # depends on the range setup
             "bit_depth"    : 16,       # assume always S16_LE
             "periodsize"   : 4096,
@@ -804,7 +805,7 @@ class AnalyzerParameters:
             "spectrogram_duration" : 1.0,
             "use_dBA"      : False,
             "_adc_conf_keys" : [
-                'sampler_id', 'sample_rate', 'periodsize'],
+                'sampler_id', 'sample_rate', 'periodsize', 'volt_range'],
         }
     }
 

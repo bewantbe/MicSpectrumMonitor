@@ -29,6 +29,7 @@ class AD7606CReader(tssabc.SampleReader):
         self.n_channel = self.adc.n_channel
         self.sample_rate = 1.0 / self.adc.get_sampling_interval()
         self.n_frames = self.chunk_size
+        self.adc.show_essential_info()
         self.adc.start(self.n_frames)
         return self
     
