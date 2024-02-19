@@ -118,6 +118,8 @@ Roadmap:
 * Map volt 0~5V to -1~1
 * Remember user settings, across sessions
   - ...
+* Reording tssampler init parameters.
+* Rename tssamplers.
 * Add a time cursor for the spectrogram and RMS
 * Add update device in device list by using/writing tssampler functions.
   - such as sine, white noise.

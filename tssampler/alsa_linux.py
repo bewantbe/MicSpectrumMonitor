@@ -8,7 +8,7 @@ class AlsaAudio(tssabc.SampleReader):
 
     sampler_id = 'alsa'
 
-    def init(self, sample_rate, chunk_size, stream_callback=None, n_channel=1, periodsize=256, format='S16_LE', device='default', **kwargs):
+    def init(self, sample_rate, stream_callback=None, n_channel=1, periodsize=256, format='S16_LE', device='default', **kwargs):
         self.n_channel  = n_channel
         self.sample_rate = sample_rate * 1.0  # keep float, so easier for math
         self.periodsize  = periodsize
@@ -38,7 +38,7 @@ class AlsaAudio(tssabc.SampleReader):
         sample_d = sample_d.reshape((len(sample_d)//self.n_channel, self.n_channel))
         return sample_d
 
-    def read(self, n_frames):
+    def read(self):
         l, data = self.inp.read()     # Read data from device
         if l < 0:
             print("recorder overrun at t = %.3f sec, some samples are lost." % (time.time()))
@@ -49,4 +49,5 @@ class AlsaAudio(tssabc.SampleReader):
             print("\nread sample: %d, requested: %d" \
                   % (l, self.periodsize))
         sample_d = self.decode_raw_samples(data)
+        print(sample_d[:10, :])
         return sample_d
