@@ -115,8 +115,10 @@ Roadmap:
   - done
 * More smart frame rate control
   - done, but still do not know where is the slow part in the whole pipeline
+* Map volt 0~5V to -1~1
 * Remember user settings, across sessions
   - ...
+* Add a time cursor for the spectrogram and RMS
 * Add update device in device list by using/writing tssampler functions.
   - such as sine, white noise.
 * Add sample rate monitor in recthread.
@@ -485,15 +487,6 @@ class RMSPlot:
         self.n_ave = n_ave
     
     def feed_rms(self, rms_db):
-        #print('dB:', rms_db)
-        res_n = 10  # length of each dB bar
-        bl = -70
-        bu = -20
-        dbu_scaled = list(map(int, np.clip((rms_db - bl)/(bu-bl) * res_n, 0, res_n)))
-        for dbu_s in dbu_scaled:
-            print('#'*dbu_s + ' '*(res_n - dbu_s), end='|')
-        print()
-
         with self.data_lock:
             self.arr_rms_db[self.loop_cursor,:] = rms_db
             self.data_feed_count += 1

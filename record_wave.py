@@ -317,7 +317,7 @@ class FPSLimiter:
         self.t_last_estimate_load = time_now
         with self.lock:
             self.f_yet_to_render += self.f_allowed - self.f_rendered
-            print(f'FPSLimiter: f_request = {self.f_request}, f_allowed = {self.f_allowed}, f_rendered = {self.f_rendered}')
+            #print(f'FPSLimiter: f_request = {self.f_request}, f_allowed = {self.f_allowed}, f_rendered = {self.f_rendered}')
             self._update_state(t_intv)
             self._state_action(t_intv)
             # counters reset
@@ -337,7 +337,7 @@ class FPSLimiter:
                 self.state = 'full'
             else:
                 self.state = 'clamped'
-        print(f'----: rate_request = {rate_request:.1f}, f_yet_to_render = {self.f_yet_to_render}, state = {self.state}')
+        #print(f'----: rate_request = {rate_request:.1f}, f_yet_to_render = {self.f_yet_to_render}, state = {self.state}')
         self.state_updated = True
     
     def _state_action(self, t_intv):
