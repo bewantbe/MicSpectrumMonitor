@@ -1,0 +1,89 @@
+Roadmap
+=======
+
+* Introduce and test multi-channels, monitor and recorder
+  - done
+* write spectrogram show (1 channel then n-cahnnels)
+  - done
+* refactor spectrogram show to make it independent
+  - done
+* refactor spectrum plot to make it independent
+  - done
+* make waveform plot independent
+  - done
+* Add time-frequency axis to the spectrogram
+  - done.
+* Add button to save the window as a png file
+  - done.
+* apply analysis to multi-channels.
+  - extend analyzerData to multi-channels: done
+  - extend plots
+    + done waveform
+    + done spectrum
+    + done RMS
+    + spectrogram -- cancelled
+* Add RMS curve plot.
+  - done
+* Reduce plot margin.
+  - done
+* Add limit to FPS.
+  - done.
+* Allow Log freq axis mode.
+  - done spectrum plot.
+* Better user interaction design
+  - start/stop recording
+    + done
+  - Show the recording time we saved.
+    + done
+  - Show possible recording time left.
+    + done
+* Add units for axis, and get scale prefix, set grid for some plot.
+  - done
+* longer update time for remaining space for rec.
+  - done
+* callback to monitoring/stop
+  - done
+* callback to device
+  - refactor audio data pipeline
+    + done
+  - full restart
+    + done
+* callback to sampling rate
+    + done
+* callback to select channels
+    + done
+* callback to FFT length
+    + done
+* callback to averaging
+    + done
+* Test AD7606C
+    + done, run but not stable.
+* properly close AD7606C
+  - done
+* More smart frame rate control
+  - done, but still do not know where is the slow part in the whole pipeline
+  - done, now I know it is the ADC driver's fault that lost track of the sampling ring buffer.
+
+Under consideration
+===================
+
+* Map volt 0~5V to -1~1
+* Make waveform plot accept all zero input, instead of let pyqtgraph gives warnings.
+* Remember user settings, across sessions
+  - ...
+* Reording tssampler init parameters.
+* Make UI adapt its size automatically (like button size by text length).
+* Rename tssamplers.
+* Add a time cursor for the spectrogram and RMS
+* Add update device in device list by using/writing tssampler functions.
+  - such as sine, white noise.
+* Add advanced setting for device parameters.
+* Add sample rate monitor in recthread.
+* Spectrogram plot log mode.
+* Add button beside spectrum plot or in the advanced setting to allow user to select normalization mode.
+* Colormap for spectrogram
+* Optimize spectrogram speed/cpu
+* link frequency axis of spectrum and spectrogram
+* consider support RF64 format for wav file, e.g.
+  - using soundfile, https://pypi.org/project/soundfile/
+  - using pysndfile, https://pypi.org/project/pysndfile/, https://forge-2.ircam.fr/roebel/pysndfile
