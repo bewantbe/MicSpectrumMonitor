@@ -1,0 +1,8 @@
+numpy
+matplotlib
+pyqtgraph
+PyQt6
+pyalsaaudio>=0.10  # for Linux
+
+#may also need
+#sudo apt-get install libxcb-cursor0

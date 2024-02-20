@@ -2,4 +2,4 @@ numpy
 matplotlib
 pyqtgraph
 PyQt6
-pyaudio
+pyaudio            # mostly for windows

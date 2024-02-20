@@ -116,9 +116,11 @@ Roadmap:
 * More smart frame rate control
   - done, but still do not know where is the slow part in the whole pipeline
 * Map volt 0~5V to -1~1
+* Make waveform plot accept all zero input, instead of let pyqtgraph give warnings.
 * Remember user settings, across sessions
   - ...
 * Reording tssampler init parameters.
+* Make UI adapt its size automatically (like button size by text length).
 * Rename tssamplers.
 * Add a time cursor for the spectrogram and RMS
 * Add update device in device list by using/writing tssampler functions.
