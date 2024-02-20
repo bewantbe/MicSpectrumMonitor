@@ -123,6 +123,7 @@ Roadmap:
 * Add a time cursor for the spectrogram and RMS
 * Add update device in device list by using/writing tssampler functions.
   - such as sine, white noise.
+* Add advanced setting for device parameters.
 * Add sample rate monitor in recthread.
 * Spectrogram plot log mode.
 * Colormap for spectrogram
@@ -439,7 +440,7 @@ class RMSPlot:
     
     def init_param(self, analyzer, sz_hop, spectrogram_duration):
         self.dB_max = analyzer.RMS_db_sine_inc
-        self.dB_min = 20 * np.log10(2**(-15))     # assume 16-bit
+        self.dB_min = 20 * np.log10(2**(-16-1))     # assume 16-bit
         # for RMS data
         self.n_ave = analyzer.ave_num
         self.t_duration_set = spectrogram_duration

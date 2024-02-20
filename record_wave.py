@@ -129,6 +129,8 @@ class analyzerData():
             self.RMS_sine_factor = 2.0
             self.RMS_db_sine_inc = 10*log10(2.0)
         else:
+            # Normalized such that 1.0*sin(w*t) (w!=0) will give 0dB peak.
+            # Meanwhile, RMS = 10*log10(1/2) dB = -3.01 dB
             self.RMS_sine_factor = 1.0
             self.RMS_db_sine_inc = 0.0
 

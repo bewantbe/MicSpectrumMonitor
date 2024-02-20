@@ -49,5 +49,5 @@ class AlsaAudio(tssabc.SampleReader):
             print("\nread sample: %d, requested: %d" \
                   % (l, self.periodsize))
         sample_d = self.decode_raw_samples(data)
-        print(sample_d[:10, :])
+        #sample_d += 1.0/32768 * (np.random.rand(*sample_d.shape) - 0.5)
         return sample_d
