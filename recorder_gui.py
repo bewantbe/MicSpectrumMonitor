@@ -50,6 +50,8 @@ from record_wave import (
 
 from control_pannel import Ui_Dock4  # TODO: change "from PyQt6" to "from pyqtgraph.Qt"
 
+DEFAULT_CONF_FILE = '.analyzer.conf'
+
 def mk_list(a):
     if isinstance(a, list):
         return a
@@ -525,7 +527,7 @@ def pretty_num_unit(v, n_prec = 4):
     return st
 
 class AnalyzerParameters:
-    def __init__(self, conf_path = 'preferences.conf'):
+    def __init__(self, conf_path = DEFAULT_CONF_FILE):
         self._ana_conf_keys = [
             'size_chunk', 'size_hop', 'n_ave', 'use_dBA']
         self.devices_conf = deepcopy(self.devices_conf_default)

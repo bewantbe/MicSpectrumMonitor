@@ -14,6 +14,8 @@ Features:
 * Tested up to 8 channels at 500kHz sample rate, which is suitable for typical acoustic and ultrasonic applications.
 * Capable of saving audio data to a file, taking window screenshots.
 
+See [roadmap](./roadmap) for the current development status and future plans.
+
 Install
 -------
 

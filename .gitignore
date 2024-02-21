@@ -3,3 +3,7 @@ __pycache__
 /.vs
 *.swp
 *~
+
+USB_DaqsB.log
+*.png
+*.wav

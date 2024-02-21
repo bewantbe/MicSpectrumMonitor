@@ -28,6 +28,8 @@ Roadmap
   - done
 * Add limit to FPS.
   - done.
+* Add sample rate monitor in recthread.
+  - done, but not so useful, now commented.
 * Allow Log freq axis mode.
   - done spectrum plot.
 * Better user interaction design
@@ -63,32 +65,38 @@ Roadmap
 * More smart frame rate control
   - done, but still do not know where is the slow part in the whole pipeline
   - done, now I know it is the ADC driver's fault that lost track of the sampling ring buffer.
-
+* Move non-directly related files to former_script
+  - done
 
 Features under consideration
 ----------------------------
 
+Targets for v0.5
+
 * Map volt 0~5V to -1~1
-* Make waveform plot accept all zero input, instead of let pyqtgraph gives warnings.
 * Remember user settings, across sessions
   - ...
-* Use true multi-thread (such as Qt thread) for recorder and STFT analyzer.
-* Move ADC parameter to ADC tssampler class.
-* Clearn up logging and dbg_print and print.
+* Make waveform plot accept all zero input, instead of let pyqtgraph gives warnings.
+
+Target for v0.6 or later
+
+* Move ADC parameters to ADC tssampler class.
 * Reording tssampler init parameters.
-* Make UI adapt its size automatically (like button size by text length), adapt different DPI.
-* Faster recover time for the adaptive fps limiter.
 * Rename tssamplers.
+* Use true multi-thread (such as Qt thread) for recorder and STFT analyzer.
+* Clearn up logging and dbg_print and print.
+* Make UI adapt its size automatically (like button size by text length), adapt different DPI.
+* Faster recover time for the adaptive fps limiter, or modify its logic.
 * Add a time cursor for the spectrogram and RMS
+* Allow choose channels for the spectrogram, such as using a button.
+* Colormap for spectrogram
 * Add update device in device list by using/writing tssampler functions.
   - such as sine, white noise.
 * Add advanced setting for device parameters.
-* Add sample rate monitor in recthread.
 * Spectrogram plot log mode.
 * Add button beside spectrum plot or in the advanced setting to allow user to select normalization mode.
-* Colormap for spectrogram
 * Optimize spectrogram speed/cpu
-* link frequency axis of spectrum and spectrogram
+* link frequency axis of spectrum and spectrogram?
 * Show theory lower bound of spectrum and RMS.
 * consider support RF64 format for wav file, e.g.
   - using soundfile, https://pypi.org/project/soundfile/
