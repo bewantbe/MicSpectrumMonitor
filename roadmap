@@ -72,6 +72,9 @@ Features under consideration
 * Make waveform plot accept all zero input, instead of let pyqtgraph gives warnings.
 * Remember user settings, across sessions
   - ...
+* Use true multi-thread (such as Qt thread) for recorder and STFT analyzer.
+* Move ADC parameter to ADC tssampler class.
+* Clearn up logging and dbg_print and print.
 * Reording tssampler init parameters.
 * Make UI adapt its size automatically (like button size by text length), adapt different DPI.
 * Faster recover time for the adaptive fps limiter.
@@ -86,6 +89,10 @@ Features under consideration
 * Colormap for spectrogram
 * Optimize spectrogram speed/cpu
 * link frequency axis of spectrum and spectrogram
+* Show theory lower bound of spectrum and RMS.
 * consider support RF64 format for wav file, e.g.
   - using soundfile, https://pypi.org/project/soundfile/
   - using pysndfile, https://pypi.org/project/pysndfile/, https://forge-2.ircam.fr/roebel/pysndfile
+* Add waveform sync (trigger) function, and show frequency in it.
+* Add device support for USB oscilloscope.
+* Add device support for [Comedi](http://comedi.org/) in Linux.
