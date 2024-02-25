@@ -15,6 +15,7 @@ import datetime
 import time
 from time import perf_counter
 from copy import deepcopy
+import array
 import queue
 import wave
 import math
@@ -100,6 +101,16 @@ class AudioSaver:
             sample = np.array(np.round(volt * self.volt_scaler),
                               dtype = self.np_dtype, order = 'C')
             data = sample.data   # .data or .tobytes()
+        elif isinstance(data, array.array):
+            if data.typecode == 'H':
+                s = np.array(data, dtype = np.uint16)
+                s = s - 32768   # then can be interpreted as signed int16
+                data = s.data
+            else:
+                # assume 'h', make it a bytes-like object
+                data = data.tobytes()
+        else:
+            raise ValueError("data type not supported")
 
         # data must be a bytes-like object, len() will return number of bytes
         self.wav_handler.writeframes(data)

@@ -25,6 +25,7 @@ class AD7606CReader(tssabc.SampleReader):
         self.adc = M3F20xmADC(reset = True)
         self.initilized = True
         self.adc.set_input_range(volt_range, ends)
+        self.value_mid = 0 if self.adc.typecode == 'h' else 32768
         self.adc.set_sampling_rate(sample_rate)
         self.n_channel = self.adc.n_channel
         self.sample_rate = 1.0 / self.adc.get_sampling_interval()
@@ -34,14 +35,20 @@ class AD7606CReader(tssabc.SampleReader):
         return self
     
     def read(self):
+        """
+        Always return a 2D array, with shape (n_frames, n_channel),
+        and the values are always within [-1, 1).
+        """
         n_frames_left = self.adc.get_fifo_frames_left()
         t_wait = (2 * self.n_frames - n_frames_left) / self.sample_rate
+        # TODO: sometimes, the resolution of time.sleep is not enough,
+        #       we better set lower bound for t_wait
         if t_wait > 0:
             # we better wait for more data
             time.sleep(t_wait)
         v = self.adc.read()   # non-block
         a = np.array(v).reshape((len(v)//self.n_channel, self.n_channel))
-        return (a - 0) / 32768.0
+        return (a - self.value_mid) / 32768.0
 
     def close(self):
         self.adc.close()

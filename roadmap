@@ -73,13 +73,17 @@ Features under consideration
 
 Targets for v0.5
 
-* Map volt 0~5V to -1~1
+* Map volt 0~5V to -1~1, test save.
 * Remember user settings, across sessions
   - ...
 * Make waveform plot accept all zero input, instead of let pyqtgraph gives warnings.
+* re-structure the file layout as an app.
+* add publish direction.
+* test usage in embed-python.
 
 Target for v0.6 or later
 
+* Able to load calibration file by a button.
 * Move ADC parameters to ADC tssampler class.
 * Reording tssampler init parameters.
 * Rename tssamplers.
@@ -90,7 +94,7 @@ Target for v0.6 or later
 * Add a time cursor for the spectrogram and RMS
 * Allow choose channels for the spectrogram, such as using a button.
 * Colormap for spectrogram
-* Add update device in device list by using/writing tssampler functions.
+* Allow update device list by using/writing tssampler functions.
   - such as sine, white noise.
 * Add advanced setting for device parameters.
 * Spectrogram plot log mode.
