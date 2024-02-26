@@ -21,6 +21,7 @@ import wave
 import math
 import threading
 
+#import pprint
 import logging
 
 import numpy as np
@@ -557,10 +558,11 @@ class AnalyzerParameters:
             d = json.load(f)
         self.devices_conf.update(d)
         self.last_device = self.devices_conf["current_device"]
-        # if bad file, just remove the file yourself
+        # if bad file, remove the conf file
 
     def dump_self_conf(self):
         """current namespace to conf, then conf to file"""
+        logging.info(f'dump conf to file "{self.conf_path}"')
         self.self_to_dict()
         with open(self.conf_path, 'w') as f:
             json.dump(self.devices_conf, f, indent=2)
@@ -574,7 +576,7 @@ class AnalyzerParameters:
         # load new conf
         if device_name == 'System mic':  # deal with alias
             device_name = 'mic'
-        self.dict_to_self(self.devices_conf_default[device_name])
+        self.dict_to_self(self.devices_conf[device_name])
         self.current_device = device_name
 
     def do_empty_self(self):
@@ -605,6 +607,7 @@ class AnalyzerParameters:
         self.devices_conf["current_device"] = self.current_device
 
     def update_to_ui(self, ui):
+        """update UI from current device conf"""
         # if we have sampler_id defined, means we are initialized
         if not hasattr(self, 'sampler_id'):
             return
