@@ -239,6 +239,9 @@ class analyzerData():
         # TODO: what's the quantization limit of floating point FFT lagorithm?
         return 20 * log10(1 / 2**n_bit_depth) + 10 * log10(1 / self.sz_fft)
 
+    def lower_bound_RMS_dB(self, n_bit_depth = 16):
+        return 20 * log10(1 / 2**n_bit_depth)
+
     def get_volt(self):
         self.lock_data.acquire()  # TODO: rewrite using context management protocol (with lock:)
         tmpv = self.v.copy()

@@ -227,8 +227,10 @@ class WaveformPlot:
             np.random.normal(size=100),
             name = 'ch1')
         # Set the margins of the layout (left, top, right, bottom)
-        plot_widget.getPlotItem().layout.setContentsMargins(0, 10, 10, 0)
-        plot_widget.getPlotItem().getAxis('left').setWidth(50)
+        plot_item = plot_widget.getPlotItem()
+        plot_item.layout.setContentsMargins(0, 10, 10, 0)
+        plot_item.getAxis('left').setWidth(50)
+        plot_item.setLimits(minYRange=1/65536)
         self.plot_widget = plot_widget
         self.plot_data_items = [plot_data_item]  # may try PlotCurveItem()
         return plot_widget
@@ -370,7 +372,7 @@ class RMSPlot:
     
     def init_param(self, analyzer, sz_hop, spectrogram_duration):
         self.dB_max = analyzer.RMS_db_sine_inc
-        self.dB_min = 20 * np.log10(2**(-16-1))     # assume 16-bit
+        self.dB_min = analyzer.lower_bound_RMS_dB()
         # for RMS data
         self.n_ave = analyzer.ave_num
         self.t_duration_set = spectrogram_duration
@@ -379,7 +381,7 @@ class RMSPlot:
         self.t_duration = self.rms_len * t_hop    # correct the duration
         self.loop_cursor = 0
         self.n_channel = analyzer.n_channel
-        self.arr_rms_db = -90 * np.ones((self.rms_len, self.n_channel))
+        self.arr_rms_db = self.dB_min * np.ones((self.rms_len, self.n_channel))
         self.arr_t = np.arange(self.rms_len) * t_hop
         # set plot color
         self.lut = GetColorMapLut(self.n_channel)
@@ -393,7 +395,7 @@ class RMSPlot:
         self.plot_data_items[0].setPen(self.lut[0])
         for i in range(1, self.n_channel):
             pl = self.plot_widget.plot(
-                -90 * np.ones(100),
+                self.dB_min * np.ones(100),
                 pen = self.lut[i],
                 name = f'ch{i+1}')
             self.plot_data_items.append(pl)
@@ -402,7 +404,7 @@ class RMSPlot:
     def config_plot(self):
         self.plot_widget.getPlotItem().setLimits(
             #xMin=0, xMax=self.t_duration,
-            yMin=self.dB_min, yMax=self.dB_max + 5.0)
+            yMin=self.dB_min - 6.0, yMax=self.dB_max + 6.0)
         self.plot_widget.setLabel('bottom', units='second')
         self.plot_widget.setLabel('left', units='dB')
         self.plot_widget.showGrid(x=True, y=True)
@@ -461,6 +463,7 @@ class SpectrogramPlot:
         self.x_freq = analyzer.fqs
         self.n_freq = len(self.x_freq)
         self.n_ave = analyzer.ave_num
+        self.lower_bound_spectrum_db = analyzer.lower_bound_spectrum_dB()
         self.spam_bmp_t_duration_set = spectrogram_duration  # sec
         self.spam_len = int(self.spam_bmp_t_duration_set / t_hop)
         self.spam_bmp_t_duration = self.spam_len * t_hop    # correct the duration
@@ -485,10 +488,12 @@ class SpectrogramPlot:
     def set_n_ave(self, n_ave):
         self.n_ave = n_ave
     
-    def feed_spectrum(self, spectrum):
+    def feed_spectrum(self, spectrum, idx_ch = 0):
         # separate computation (here) and plot (in update()) in different threads
+        s = spectrum[:, idx_ch]
+        s[s < self.lower_bound_spectrum_db-6] = self.lower_bound_spectrum_db-6
         with self.spam_lock:
-            self.spam_bmp[self.spam_loop_cursor,:] = spectrum[:,0]
+            self.spam_bmp[self.spam_loop_cursor,:] = s
             self.spam_loop_cursor = (self.spam_loop_cursor + 1) % self.spam_len
             self.data_feed_count += 1
         return self.spam_bmp
