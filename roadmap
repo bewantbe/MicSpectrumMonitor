@@ -76,8 +76,8 @@ Targets for v0.5
   - done, it is not waveform plot's fault, but the spectrogram's imshow.
 * re-structure the file layout as an app.
   - done.
-* add publish direction.
-* test usage in embed-python.
+* add publish direction, test usage in embed-python.
+  - done.
 
 
 Features under consideration
