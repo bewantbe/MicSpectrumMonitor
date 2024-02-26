@@ -67,13 +67,13 @@ Roadmap
   - done, now I know it is the ADC driver's fault that lost track of the sampling ring buffer.
 * Move non-directly related files to former_script
   - done
+* Map volt 0~5V to -1~1, test save.
 
 Features under consideration
 ----------------------------
 
 Targets for v0.5
 
-* Map volt 0~5V to -1~1, test save.
 * Remember user settings, across sessions
   - ...
 * Make waveform plot accept all zero input, instead of let pyqtgraph gives warnings.
@@ -83,6 +83,7 @@ Targets for v0.5
 
 Target for v0.6 or later
 
+* rework adc.read(), make it more clear the format of output.
 * Able to load calibration file by a button.
 * Move ADC parameters to ADC tssampler class.
 * Reording tssampler init parameters.
