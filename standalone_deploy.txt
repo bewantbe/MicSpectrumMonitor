@@ -1,0 +1,51 @@
+##1. Download Windows embeddable package (64-bit)
+
+  e.g. from https://www.python.org/downloads/windows/
+  https://www.python.org/ftp/python/3.11.7/python-3.11.7-embed-amd64.zip
+
+  Unzip it to a directory, say ./py311/
+
+  Try run it: ./python.exe
+  Exit by import os; os._exit(0)
+
+
+##2. Enable customizable packages
+
+Modify: python311._pth
+uncomment import site
+
+
+##3. install pip
+#cd F:\Programs\python-3.11.6-embed-amd64
+cd py311
+wget https://bootstrap.pypa.io/get-pip.py -O get-pip.py
+#ref. https://github.com/pypa/get-pip
+
+# install pip
+./python.exe get-pip.py
+
+
+##4. install dependences
+./python.exe -m pip install -r 'requirements.txt'
+
+
+##5. Insert customized modules
+
+Add customized import path to python311._pth
+..\MicSpectrumMonitor
+..\PyAD7606C
+
+Copy the core dll to ADC
+  USB2DaqsB.dll
+
+
+##6. Run and test
+
+./python.exe -m audiospectra
+
+
+##7. installation
+
+copy the context to your "install" location
+setup shortcut for
+  pyaudiospectra.bat
