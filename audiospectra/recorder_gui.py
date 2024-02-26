@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 
-# recommend to use pyqt6
+## PyAudioSpectra
 
 # Usage:
-#   python3 recorder_gui.py
+#   python -m audiospectra
+# Or:
+#   python recorder_gui.py
 
 # Contact: xyy <bewantbe@gmail.com>
 # Github: https://github.com/bewantbe/MicSpectrumMonitor
+
+# recommend to use pyqt6 with pyqtgraph in this project
 
 import os
 import shutil
@@ -43,14 +48,14 @@ logging.basicConfig(
 logging.getLogger('matplotlib').setLevel(logging.CRITICAL)
 #logger = logging.getLogger('gui')
 
-from record_wave import (
+from .record_wave import (
     recThread,
     sampleChunkThread,
     analyzerData,
     FPSLimiter
 )
 
-from control_pannel import Ui_Dock4  # TODO: change "from PyQt6" to "from pyqtgraph.Qt"
+from .control_pannel import Ui_Dock4  # TODO: change "from PyQt6" to "from pyqtgraph.Qt"
 
 DEFAULT_CONF_FILE = '.analyzer.conf'
 
@@ -1344,7 +1349,10 @@ def toc(s = None):
         print(f'time = {t:.6f} s, ({s})')
     return t
 
-if __name__ == '__main__':
+def main():
     app = pg.mkQApp("Spectrum Analyzer - docked plots")
     main_window = MainWindow(qapp = app)
     pg.exec()
+
+if __name__ == '__main__':
+    main()

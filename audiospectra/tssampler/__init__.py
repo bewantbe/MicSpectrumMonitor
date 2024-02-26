@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # load all known samplers
 # Usage 1:
 #   from tssamplers import get_sampler

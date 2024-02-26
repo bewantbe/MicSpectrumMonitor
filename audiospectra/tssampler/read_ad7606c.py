@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import time
 import numpy as np
@@ -9,7 +10,7 @@ import os
 import sys
 # get path of current python script
 _cwd_ = os.path.dirname(os.path.abspath(__file__))
-_pyd_ = os.path.join(_cwd_, '..', '..', 'PyAD7606C')
+_pyd_ = os.path.join(_cwd_, '..', '..', '..', 'PyAD7606C')
 sys.path.append(_pyd_)
 from M3F20xm import M3F20xmADC, dbg_print
 

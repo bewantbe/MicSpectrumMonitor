@@ -1,5 +1,5 @@
-Mic Spectrum Monitor
-====================
+PyAudioSpectra - A Mic Spectrum Monitor
+=======================================
 
 This is a real-time spectrum and spectrogram monitor (some call it an analyzer) written in pure Python. Conceptually, it's a "Desktop" version of the app [Audio Spectrum Analyzer for Android](https://github.com/bewantbe/audio-analyzer-for-android) or [Audio Spectrum Analyzer](https://play.google.com/store/apps/details?id=github.bewantbe.audio_analyzer_for_android).
 

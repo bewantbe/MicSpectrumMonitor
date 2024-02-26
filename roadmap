@@ -74,13 +74,14 @@ Targets for v0.5
   - done
 * Make waveform plot accept all zero input, instead of let pyqtgraph gives warnings.
   - done, it is not waveform plot's fault, but the spectrogram's imshow.
+* re-structure the file layout as an app.
+  - done.
 
 Features under consideration
 ----------------------------
 
 Targets for v0.5
 
-* re-structure the file layout as an app.
 * add publish direction.
 * test usage in embed-python.
 

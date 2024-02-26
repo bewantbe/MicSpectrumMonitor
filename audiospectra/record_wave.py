@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import sys
 import time
@@ -13,8 +14,8 @@ from numpy import (
     log10, sqrt, sum
 )
 # https://larsimmisch.github.io/pyalsaaudio/
-from tssampler import get_sampler
-from tssampler.ideal_source import WhiteSource
+from .tssampler import get_sampler
+from .tssampler.ideal_source import WhiteSource
 
 # to run:  `python record_wave.py -d default -l 8192 -n 128 --calib='99-21328.txt'`
 # to kill: `pkill -f record_wave.py`
@@ -39,7 +40,7 @@ pacmd set-source-volume 1 6554 && pacmd list-sources | grep volume
 
 # xde: UMIK-1 vol=52000 (-6.03 dB) <-dBA-> huawei: PMIK-1 (rec)
 
-from recmonitor import shortPeriodDectector, overrunChecker
+from .recmonitor import shortPeriodDectector, overrunChecker
 
 def log10_(x):
     # log of 0 is -inf, don't raise error or warning
