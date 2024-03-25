@@ -1029,8 +1029,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle('Spectrum Analyzer')
 
         ## setup layout
-        dock1 = Dock("Waveform", size=(100, 200))
-        dock2 = Dock("Spectrum", size=(500, 300))  # removed closable
+        dock1 = Dock("Waveform", size=(100, 200), closable=True)
+        dock2 = Dock("Spectrum", size=(500, 300))
         dock3 = Dock("Spectrogram", size=(500,400))
         dock5 = Dock("RMS", size=(500,200))
         dock4 = Dock("Control Pannel", size=(500,250))
