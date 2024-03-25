@@ -4,8 +4,10 @@
 ## PyAudioSpectra
 
 # Usage:
+#   # cd to Root directory of this project
 #   python -m audiospectra
 # Or:
+#   # cd audiospectra/
 #   python recorder_gui.py
 
 # Contact: xyy <bewantbe@gmail.com>
@@ -764,14 +766,22 @@ class AudioSaverManager:
         self.ui_dock4.label_rec_time_timer = None
         self.ui_dock4.pushButton_rec.clicked.connect(self.start_stop_saving)
         self.ui_dock4.toolButton_path.clicked.connect(self.open_file_dialog)
-        self.wav_save_path = None
 
     def update_wav_param(self, ana_param):
         self.ana_param = ana_param
 
     def open_file_dialog(self):
-        self.wav_save_path = QtWidgets.QFileDialog.getSaveFileName()[0]
-        self.ui_dock4.lineEdit_wavpath.setText(self.wav_save_path)
+        #self.wav_save_path = QtWidgets.QFileDialog.getSaveFileName()[0]
+        self.wav_save_path = QtWidgets.QFileDialog.getExistingDirectory()
+
+    @property
+    def wav_save_path(self):
+        _wav_save_path = self.ui_dock4.lineEdit_wavpath.text()
+        return _wav_save_path
+
+    @wav_save_path.setter
+    def wav_save_path(self, path):
+        self.ui_dock4.lineEdit_wavpath.setText(path)
 
     def is_rec_on(self):
         # Test if the audio saving (to WAV) is on
@@ -796,9 +806,10 @@ class AudioSaverManager:
             self.ui_dock4.pushButton_rec.setText('Start recording')
             self.ui_dock4.pushButton_rec.setStyleSheet("background-color: grey")
             # invalidate the file name in the lineedit, put old text to the placeholder
-            self.ui_dock4.lineEdit_wavpath.setText('')
+            # Just to avoid overwrite the same file unintentionally.
+            wave_save_dir = os.path.dirname(os.path.abspath(self.wav_save_path))
             self.ui_dock4.lineEdit_wavpath.setPlaceholderText(self.wav_save_path)
-            self.wav_save_path = None
+            self.wav_save_path = wave_save_dir
             # Disable time recorded message
             if self.ui_dock4.label_rec_time_timer is not None:
                 self.ui_dock4.label_rec_time_timer.stop()
@@ -858,12 +869,19 @@ class AudioSaverManager:
 
     def start_audio_saving(self):
         # Ensure we have a file name anyway
-        self.wav_save_path = self.ui_dock4.lineEdit_wavpath.text()
-        if (self.wav_save_path is None) or (self.wav_save_path == ''):
-            # set file name by date and time
+        sav_abs_path = os.path.abspath(self.wav_save_path)
+        if os.path.isdir(sav_abs_path):
+            # if it is a directory, auto fill the file name by date and time
             now = datetime.datetime.now()
-            self.wav_save_path = now.strftime("untitled_%Y-%m-%d_%H%M%S.wav")
-            self.ui_dock4.lineEdit_wavpath.setText(self.wav_save_path)
+            self.wav_save_path = os.path.join(sav_abs_path,
+                now.strftime("untitled_%Y-%m-%d_%H%M%S.wav"))
+        elif not sav_abs_path.endswith('.wav'):
+            # if file name not ends with known extension,
+            # auto applend date and time
+            now = datetime.datetime.now()
+            self.wav_save_path = sav_abs_path + \
+                now.strftime("_%Y-%m-%d_%H%M%S.wav")
+
         # For setup the wav writer
         wav_saver_conf = {
             'wav_path': self.wav_save_path,

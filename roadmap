@@ -1,6 +1,9 @@
 Roadmap
 =======
 
+Implemented
+-----------
+
 * Introduce and test multi-channels, monitor and recorder
   - done
 * write spectrogram show (1 channel then n-cahnnels)
@@ -78,13 +81,15 @@ Targets for v0.5
   - done.
 * add publish direction, test usage in embed-python.
   - done.
-
+* If save path is a directory, then auto generate a file name.
+  - done.
 
 Features under consideration
 ----------------------------
 
 Target for v0.6 or later
 
+* Make waveform closable.
 * rework the drop down list.
 * rework adc.read(), make it more clear the format of output.
 * Able to load calibration file by a button.
