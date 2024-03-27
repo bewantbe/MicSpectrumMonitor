@@ -85,36 +85,41 @@ Targets for v0.5
   - done.
 * Make waveform closable.
   - done.
+* Show theory lower bound of spectrum and RMS.
+  - done.
 
 Features under consideration
 ----------------------------
 
 Target for v0.6 or later
 
+* Add Copyright etc in the GUI.
+* Slightly higher the spectrum lower bound.
+* Able to load calibration file by a button.
+* auto peak detection.
 * rework the drop down list.
 * rework adc.read(), make it more clear the format of output.
-* Able to load calibration file by a button.
-* Move ADC parameters to ADC tssampler class.
 * Reording tssampler init parameters.
+* Move ADC parameters to ADC tssampler class.
+* Add advanced setting for device parameters.
 * Rename tssamplers.
 * Use true multi-thread (such as Qt thread) for recorder and STFT analyzer.
 * Clearn up logging and dbg_print and print.
 * Make UI adapt its size automatically (like button size by text length), adapt different DPI.
 * Faster recover time for the adaptive fps limiter, or modify its logic.
 * Add a time cursor for the spectrogram and RMS
-* Allow choose channels for the spectrogram, such as using a button.
-* Colormap for spectrogram
+* Allow choose channels for the spectrogram, such as using a button/list.
+* Colormap for spectrogram.
 * Allow update device list by using/writing tssampler functions.
   - such as sine, white noise.
-* Add advanced setting for device parameters.
 * Spectrogram plot log mode.
 * Add button beside spectrum plot or in the advanced setting to allow user to select normalization mode.
 * Optimize spectrogram speed/cpu
 * link frequency axis of spectrum and spectrogram?
-* Show theory lower bound of spectrum and RMS.
 * consider support RF64 format for wav file, e.g.
   - using soundfile, https://pypi.org/project/soundfile/
   - using pysndfile, https://pypi.org/project/pysndfile/, https://forge-2.ircam.fr/roebel/pysndfile
 * Add waveform sync (trigger) function, and show frequency in it.
 * Add device support for USB oscilloscope.
 * Add device support for [Comedi](http://comedi.org/) in Linux.
+* Allow add Equalizer.
