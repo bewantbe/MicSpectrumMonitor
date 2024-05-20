@@ -5,8 +5,6 @@ This is a real-time spectrum and spectrogram monitor (some call it an analyzer) 
 
 The GUI is implemented using [pyqtgraph](https://pyqtgraph.readthedocs.io).
 
-A simple "time series sampler" API was used to abstract signal sources. Implementing this API for specific devices requires only a thin layer on top of the device library. It is possible to support devices such as a data acquisition (DAQ) board using this approach. An AD7606c-based ADC device is supported in this manner. The "AD7606c" interface library is available [here](https://github.com/bewantbe/PyAD7606C).
-
 Features:
 
 * It displays waveform, spectrum, spectrogram and RMS-time plots in the same window.
@@ -15,6 +13,9 @@ Features:
 * Capable of saving audio data to a file, taking window screenshots.
 
 See [roadmap](./roadmap) for the current development status and future plans.
+
+A simple "time series sampler" API was used to abstract signal sources. Implementing this API for specific devices requires only a thin layer on top of the device library. It is possible to support devices such as a data acquisition (DAQ) board using this approach. An AD7606c-based ADC device is supported in this manner. The "AD7606c" interface library is available [here](https://github.com/bewantbe/PyAD7606C).
+
 
 Install
 -------
