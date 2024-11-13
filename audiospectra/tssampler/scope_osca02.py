@@ -13,10 +13,12 @@ from ctypes import (
 )
 import numpy as np
 
-import tssabc     # use as script
-#from . import tssabc
+# enable logging to info level
+logging.basicConfig(level=logging.DEBUG)
 
-#DLL_ROOT = r'C:\Users\xyy82\soft\LOTO_USB示波器PC软件二次开发SDK_V9\OSCA02系列二次开发Demo例程\4_python_A02_O'
+import tssabc     # use as script
+#from . import tssabc    # use as lib
+
 DLL_ROOT = r'C:\Users\xyy82\soft\LOTO_USB示波器PC软件二次开发SDK_V9\dll\OSCA02_2002_H02\x64'
 OBJdll = windll.LoadLibrary(os.path.join(DLL_ROOT, "USBInterFace.dll"))
 
@@ -48,6 +50,10 @@ AiReadBulkData.restype = c_ulong
 
 DeviceClose = OBJdll.DeviceClose
 DeviceClose.restype = c_ulong
+
+EventCheck = OBJdll.EventCheck
+EventCheck.argtypes = [c_int]
+EventCheck.restype = c_int
 
 
 class OSCA02Reader(tssabc.SampleReader):
@@ -151,19 +157,23 @@ class OSCA02Reader(tssabc.SampleReader):
             logging.info("8. 上升沿，或者设置LED绿色灯灭")
         time.sleep(0.1)
 
+        return self
+
+    def read(self, n_frames = None):
         ## 9. start data acquisition
         USBCtrlTransSimple(c_ulong(0x33))
         logging.info("9. 控制设备开始AD采集")
+        t1 = time.time()
 
-        return self
-
-
-    def read(self, n_frames = None):
-        time.sleep(0.200)
-        logging.info("X: sleep200ms 等待采集.... ")
+        time_sample = 64*1024 / 781000
+        timeout_ms = time_sample * 1000 * 10 + 10
+        time.sleep(time_sample)
 
         ## 10. check if data acquisition and storage is complete, if so, return 33
         rFillUp = USBCtrlTransSimple(c_ulong(0x50))
+        while (rFillUp != 33) and (t1 + timeout_ms / 1000 > time.time()):
+            time.sleep(0.010)
+            rFillUp = USBCtrlTransSimple(c_ulong(0x50))
 
         if 33 != rFillUp:
             logging.error("10. 缓冲区数据没有蓄满(查询结果)")
@@ -171,7 +181,46 @@ class OSCA02Reader(tssabc.SampleReader):
         else:
             logging.info("10. 缓冲区数据已经蓄满(查询结果)")
 
-        ## 11. get acquired data by size in SetInfo()
+        rBulkRes = AiReadBulkData( c_ulong(64 * 1024 * 2) ,  c_uint(1),  c_ulong(2000) , self.g_pBuffer,  c_ubyte(0),  c_uint(0))
+        if 0 == rBulkRes:
+            logging.info("11. 传输获取采集的数据 成功!")
+        else:
+            logging.error("11. 传输获取采集的数据 失败!")
+            #sys.exit(0)
+
+        logging.info("X: waiting data transmition... ")
+        ret = EventCheck(c_int(int(timeout_ms)))  # cost about 10~17ms
+        t2 = time.time()
+        if -1 == ret:
+            logging.error("X: wrong calling")
+            sys.exit(0)
+        elif 0x555 == ret:
+            logging.error("X: timeout")
+        logging.debug(f"X: sampling data available, ret = {ret}, wait time = {t2 - t1:.3f} s, timeout = {timeout_ms:.3f} ms")
+
+        # note: g_pBuffer is ubyte array
+        sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(64 * 1024, 2))
+        assert (sample_d.shape[0] == 64 * 1024) and (sample_d.shape[1] == 2)
+
+        return sample_d
+
+    def read_sleep(self, n_frames = None):
+        ## 9. start data acquisition
+        USBCtrlTransSimple(c_ulong(0x33))
+        logging.info("9. 控制设备开始AD采集")
+
+        logging.info("X: sleep200ms 等待采集.... ")
+        time.sleep(0.200)
+
+        ## 10. check if data acquisition and storage is complete, if so, return 33
+        rFillUp = USBCtrlTransSimple(c_ulong(0x50))
+        if 33 != rFillUp:
+            logging.error("10. 缓冲区数据没有蓄满(查询结果)")
+            sys.exit(0)
+        else:
+            logging.info("10. 缓冲区数据已经蓄满(查询结果)")
+
+        ## 11. get samples, where the size is determined by SetInfo()
         rBulkRes = AiReadBulkData( c_ulong(64 * 1024 * 2) ,  c_uint(1),  c_ulong(2000) , self.g_pBuffer,  c_ubyte(0),  c_uint(0))
 
         if 0 == rBulkRes:
@@ -181,7 +230,8 @@ class OSCA02Reader(tssabc.SampleReader):
             sys.exit(0)
 
         # note: g_pBuffer is ubyte array
-        sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(64 * 1024, 2)).astype(np.float32)
+        #sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(64 * 1024, 2)).astype(np.float32)
+        sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(64 * 1024, 2))
         assert (sample_d.shape[0] == 64 * 1024) and (sample_d.shape[1] == 2)
 
         return sample_d
@@ -202,14 +252,37 @@ if __name__ == '__main__':
     sample_rate = 781000
     chunk_size = 128 * 1024
     acq_dev.init(sample_rate, chunk_size)
-    d = acq_dev.read()
 
-    # plot the data in chA and chB in the same graph
-    plt.figure()
-    t_s = np.arange(0, d.shape[0]) / sample_rate
-    plt.plot(t_s, d[:, 0], '.-', label='chA')
-    plt.plot(t_s, d[:, 1], '.-', label='chB')
-    plt.legend()
-    plt.show()
+    if 0:
+        d = acq_dev.read()
+
+        # plot the data in chA and chB in the same graph
+        plt.figure()
+        t_s = np.arange(0, d.shape[0]) / sample_rate
+        plt.plot(t_s, d[:, 0], '.-', label='chA')
+        plt.plot(t_s, d[:, 1], '.-', label='chB')
+        plt.legend()
+        plt.show()
+    
+    if 1:
+        import matplotlib.animation as animation
+
+        fig, ax = plt.subplots()
+        t_s = np.arange(0, chunk_size // 2) / sample_rate
+        line1, = ax.plot(t_s, np.zeros(chunk_size // 2), '.-', label='chA')
+        line2, = ax.plot(t_s, np.zeros(chunk_size // 2), '.-', label='chB')
+        ax.legend()
+
+        def update(frame):
+            d = acq_dev.read()
+            line1.set_ydata(d[:, 0])
+            line2.set_ydata(d[:, 1])
+            ax.relim()
+            ax.autoscale_view()
+            return line1, line2
+
+        ani = animation.FuncAnimation(fig, update, blit=True)  # run infinitely
+        #ani = animation.FuncAnimation(fig, update, frames=10, blit=True, repeat=False)  # run 10 frames
+        plt.show()
 
     acq_dev.close()
