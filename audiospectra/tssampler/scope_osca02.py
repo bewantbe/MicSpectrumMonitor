@@ -55,6 +55,44 @@ EventCheck = OBJdll.EventCheck
 EventCheck.argtypes = [c_int]
 EventCheck.restype = c_int
 
+def sampling_rate_normalization(sr_request, g_CtrlByte0):
+    assert sr_request > 0
+    sr_list = np.array([100e6]) / np.array([1, 8, 8*16, 8*16*16, 1042])  # [100e6, 12.5e6, 781e3, 49e3, 96e3]
+    sr_cmdx = [0x00, 0x08, 0x0c, 0x0e, 0x04]
+    # find the closest sampling rate in log scale
+    sr_diff = np.abs(np.log(sr_list) - np.log(sr_request))
+    sr_idx = np.argmin(sr_diff)
+    g_CtrlByte0 &= 0xf0
+    g_CtrlByte0 |= sr_cmdx[sr_idx]
+    return sr_list[sr_idx], g_CtrlByte0
+
+def set_volt_range(va_request, vb_request, g_CtrlByte1):
+    v_list = np.array([8, 5, 2.5, 1, 0.5, 0.25, 0.1])
+    mask_a_and = 0xF7
+    mask_a_or  = [0x08, 0x08, 0x08, 0x08, 0x00, 0x00, 0x00]
+    mask_a_t   = [0x00, 0x02, 0x04, 0x06, 0x02, 0x04, 0x06]
+    mask_b_and = 0xF9
+    mask_b_or  = [0x00, 0x02, 0x04, 0x06, 0x02, 0x04, 0x06]
+    mask_b_t   = [0x00, 0x00, 0x00, 0x00, 0x04, 0x04, 0x04]
+    # if the request is out of range, raise error
+    if va_request > v_list.max():
+        raise ValueError(f"va_request {va_request} is out of range")
+    if vb_request > v_list.max():
+        raise ValueError(f"vb_request {vb_request} is out of range")
+    # find lowest volt range that can cover the request
+    va_idx = len(v_list)-1 - np.argmax(v_list[::-1] >= va_request)
+    vb_idx = len(v_list)-1 - np.argmax(v_list[::-1] >= vb_request)
+    # set the volt range
+    g_CtrlByte1 &= mask_a_and
+    g_CtrlByte1 |= mask_a_or[va_idx]
+    USBCtrlTrans(c_ubyte(0x22), c_ushort(mask_a_t[va_idx]), c_ulong(1))
+    USBCtrlTrans(c_ubyte(0x24), c_ushort(g_CtrlByte1), c_ulong(1))
+    time.sleep(0.1)
+    g_CtrlByte1 &= mask_b_and
+    g_CtrlByte1 |= mask_b_or[vb_idx]
+    USBCtrlTrans(c_ubyte(0x23), c_ushort(mask_b_t[vb_idx]), c_ulong(1))
+    USBCtrlTrans(c_ubyte(0x24), c_ushort(g_CtrlByte1), c_ulong(1))
+    return v_list[va_idx], v_list[vb_idx], g_CtrlByte1
 
 class OSCA02Reader(tssabc.SampleReader):
     
@@ -63,7 +101,9 @@ class OSCA02Reader(tssabc.SampleReader):
     def __init__(self):
         self.initilized = False
 
-    def init(self, sample_rate, chunk_size, stream_callback=None, **kwargs):
+    def init(self, sample_rate, chunk_size, volt_a, volt_b, stream_callback=None, **kwargs):
+        self.chunk_size = chunk_size
+
         ## 1. set oscilloscope device model
         SpecifyDevIdx(c_int(6))            # 6: OSCA02
         logging.info("1. 设置当前示波器设备编号为6(OSCA02)!")
@@ -99,12 +139,11 @@ class OSCA02Reader(tssabc.SampleReader):
         logging.info("X: 在步骤3和4之间，初始化硬件触发, 如果触发出问题, 请注释掉这个方法不调用")
 
         ## 4. set buffer size to 128KB, e.g. 64KB per channel
-        SetInfo(c_double(1),  c_double(0),  c_ubyte(0x11),  c_int(0),   c_uint(0),  c_uint(64 * 1024 * 2) )
+        SetInfo(c_double(1),  c_double(0),  c_ubyte(0x11),  c_int(0),   c_uint(0),  c_uint(chunk_size) )
         logging.info("4. 设置使用的缓冲区为128K字节, 即每个通道64K字节")
 
         ## 5. set oscilloscope sampling rate to 781kHz
-        self.g_CtrlByte0 &= 0xf0
-        self.g_CtrlByte0 |= 0x0c
+        self.sampling_rate, self.g_CtrlByte0 = sampling_rate_normalization(sample_rate, self.g_CtrlByte0)
         Transres = USBCtrlTrans( c_ubyte(0x94),  c_ushort(self.g_CtrlByte0),  c_ulong(1))
         if 0 == Transres:
             logging.error("5. error")
@@ -121,23 +160,26 @@ class OSCA02Reader(tssabc.SampleReader):
 
         ## 6. set channel input range
         # chA range：-5V ~ +5V
-        self.g_CtrlByte1 &= 0xF7
-        self.g_CtrlByte1 |= 0x08
-        USBCtrlTrans(c_ubyte(0x22),  c_ushort(0x02),  c_ulong(1))
-        USBCtrlTrans(c_ubyte(0x24),  c_ushort(self.g_CtrlByte1),  c_ulong(1))
-        logging.info("6. 设置通道输入量程 chA 输入量程设置为：-5V ~ +5V")
-        time.sleep(0.1)
+        #self.g_CtrlByte1 &= 0xF7
+        #self.g_CtrlByte1 |= 0x08
+        #USBCtrlTrans(c_ubyte(0x22),  c_ushort(0x02),  c_ulong(1))
+        #USBCtrlTrans(c_ubyte(0x24),  c_ushort(self.g_CtrlByte1),  c_ulong(1))
+        #logging.info("6. 设置通道输入量程 chA 输入量程设置为：-5V ~ +5V")
+        #time.sleep(0.1)
 
         # chB range：-5V ~ +5V
-        self.g_CtrlByte1 &= 0xF9
-        self.g_CtrlByte1 |= 0x02
-        USBCtrlTrans(c_ubyte(0x23),  c_ushort(0x00),  c_ulong(1))
-        USBCtrlTrans(c_ubyte(0x24),  c_ushort(self.g_CtrlByte1),  c_ulong(1))
-        logging.info("6. 设置通道输入量程 chB 输入量程设置为：-5V ~ +5V")
+        #self.g_CtrlByte1 &= 0xF9
+        #self.g_CtrlByte1 |= 0x02
+        #USBCtrlTrans(c_ubyte(0x23),  c_ushort(0x00),  c_ulong(1))
+        #USBCtrlTrans(c_ubyte(0x24),  c_ushort(self.g_CtrlByte1),  c_ulong(1))
+        #logging.info("6. 设置通道输入量程 chB 输入量程设置为：-5V ~ +5V")
+
+        self.volt_a, self.volt_b, self.g_CtrlByte1 = \
+            set_volt_range(volt_a, volt_b, self.g_CtrlByte1)
 
         ## 7. set AC/DC channel coupling
         self.g_CtrlByte0 &= 0xef # chA DC coupling
-        self.g_CtrlByte0 |= 0x10 # chA DC coupling
+        self.g_CtrlByte0 |= 0x10 # chA 0x10:DC coupling, 0x00 AC coupling
         USBCtrlTrans(c_ubyte(0x94),  c_ushort(self.g_CtrlByte0),  c_ulong(1))
         logging.info("7. 设置通道交直流耦合 设置chA为DC耦合")
         time.sleep(0.1)
@@ -152,7 +194,7 @@ class OSCA02Reader(tssabc.SampleReader):
         logging.info("8. 设置当前触发模式为 无触发")
 
         if 0:
-            # 8. rising edge, or turn off green LED
+            # 8. trigger on rising edge, or turn off green LED
             USBCtrlTrans(c_ubyte(0xC5),  c_ushort(0x00),  c_ulong(1))
             logging.info("8. 上升沿，或者设置LED绿色灯灭")
         time.sleep(0.1)
@@ -165,7 +207,7 @@ class OSCA02Reader(tssabc.SampleReader):
         logging.info("9. 控制设备开始AD采集")
         t1 = time.time()
 
-        time_sample = 64*1024 / 781000
+        time_sample = self.chunk_size // 2 / self.sampling_rate
         timeout_ms = time_sample * 1000 * 10 + 10
         time.sleep(time_sample)
 
@@ -199,8 +241,8 @@ class OSCA02Reader(tssabc.SampleReader):
         logging.debug(f"X: sampling data available, ret = {ret}, wait time = {t2 - t1:.3f} s, timeout = {timeout_ms:.3f} ms")
 
         # note: g_pBuffer is ubyte array
-        sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(64 * 1024, 2))
-        assert (sample_d.shape[0] == 64 * 1024) and (sample_d.shape[1] == 2)
+        sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(self.chunk_size // 2, 2))
+        assert (sample_d.shape[0] == self.chunk_size // 2) and (sample_d.shape[1] == 2)
 
         return sample_d
 
@@ -251,7 +293,8 @@ if __name__ == '__main__':
     acq_dev = OSCA02Reader()
     sample_rate = 781000
     chunk_size = 128 * 1024
-    acq_dev.init(sample_rate, chunk_size)
+    volt = 5  # V
+    acq_dev.init(sample_rate, chunk_size, volt, volt)
 
     if 0:
         d = acq_dev.read()
