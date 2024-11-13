@@ -93,6 +93,8 @@ Features under consideration
 
 Target for v0.6 or later
 
+* Remove sample mean from the signal before output
+  - (e.g. using a order 1 filter to get mean).
 * Add Copyright etc in the GUI.
 * Slightly higher the spectrum lower bound.
 * Able to load calibration file by a button.
