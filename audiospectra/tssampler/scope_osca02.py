@@ -92,7 +92,38 @@ def set_volt_range(va_request, vb_request, g_CtrlByte1):
     g_CtrlByte1 |= mask_b_or[vb_idx]
     USBCtrlTrans(c_ubyte(0x23), c_ushort(mask_b_t[vb_idx]), c_ulong(1))
     USBCtrlTrans(c_ubyte(0x24), c_ushort(g_CtrlByte1), c_ulong(1))
-    return v_list[va_idx], v_list[vb_idx], g_CtrlByte1
+    return v_list[va_idx], v_list[vb_idx], va_idx, vb_idx, g_CtrlByte1
+
+def read_volt_calib_data():
+    #           A     B
+    zvcmd = [0x01, 0x02,  # 8
+             0x01, 0x02,  # 5
+             0x0E, 0x0F,  # 2.5
+             0x14, 0x15,  # 1
+             0x12, 0x13,  # 0.5
+             0x10, 0x11,  # 0.25
+             0xA0, 0xA1]  # 0.1
+    zero_volt_offset = np.zeros((7, 2), dtype=np.uint8)
+    for j, cmd in enumerate(zvcmd):
+        zero_volt_offset[j // 2, j % 2] = USBCtrlTrans(0x90, cmd, 1)
+
+    print('volt zero offset:\n', zero_volt_offset)
+
+    #           A     B
+    vscmd = [0xC2, 0xD2,  # 8
+             0x03, 0x04,  # 5
+             0x08, 0x0B,  # 2.5
+             0x06, 0x07,  # 1
+             0x09, 0x0C,  # 0.5
+             0x0A, 0x0D,  # 0.25
+             0x2A, 0x2D]  # 0.1
+    volt_scale = np.zeros((7, 2), dtype=np.uint8)
+    for j, cmd in enumerate(vscmd):
+        volt_scale[j // 2, j % 2] = USBCtrlTrans(0x90, cmd, 1)
+
+    print('volt scaling:\n', volt_scale * 2 / 255)
+
+    return zero_volt_offset, volt_scale
 
 class OSCA02Reader(tssabc.SampleReader):
     
@@ -174,8 +205,23 @@ class OSCA02Reader(tssabc.SampleReader):
         #USBCtrlTrans(c_ubyte(0x24),  c_ushort(self.g_CtrlByte1),  c_ulong(1))
         #logging.info("6. 设置通道输入量程 chB 输入量程设置为：-5V ~ +5V")
 
-        self.volt_a, self.volt_b, self.g_CtrlByte1 = \
+        self.volt_a_max, self.volt_b_max, self.volt_ia, self.volt_ib, self.g_CtrlByte1 = \
             set_volt_range(volt_a, volt_b, self.g_CtrlByte1)
+        self.volt_offsets, self.volt_scale = read_volt_calib_data()
+        self.volt_a_offset = self.volt_offsets[self.volt_ia, 0]
+        self.volt_b_offset = self.volt_offsets[self.volt_ib, 1]
+        self.volt_a_scale = self.volt_scale[self.volt_ia, 0] * 2 / 255
+        self.volt_b_scale = self.volt_scale[self.volt_ib, 1] * 2 / 255
+        if 0:
+            self.f_volt_cha = lambda va_bytes: \
+                (np.float64(va_bytes) - self.volt_a_offset) * (self.volt_a_max / 255 * self.volt_a_scale)
+            self.f_volt_chb = lambda vb_bytes: \
+                (np.float64(vb_bytes) - self.volt_b_offset) * (self.volt_b_max / 255 * self.volt_b_scale)
+        else:
+            self.f_volt_cha = lambda va_bytes: \
+                (np.float64(va_bytes) - self.volt_a_offset) * (2 * self.volt_a_max / 255)
+            self.f_volt_chb = lambda vb_bytes: \
+                (np.float64(vb_bytes) - self.volt_b_offset) * (2 * self.volt_b_max / 255)
 
         ## 7. set AC/DC channel coupling
         self.g_CtrlByte0 &= 0xef # chA DC coupling
@@ -244,7 +290,11 @@ class OSCA02Reader(tssabc.SampleReader):
         sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(self.chunk_size // 2, 2))
         assert (sample_d.shape[0] == self.chunk_size // 2) and (sample_d.shape[1] == 2)
 
-        return sample_d
+        sample_f = np.zeros_like(sample_d, dtype=np.float32)
+        sample_f[:, 0] = self.f_volt_cha(sample_d[:, 0])
+        sample_f[:, 1] = self.f_volt_chb(sample_d[:, 1])
+
+        return sample_f
 
     def read_sleep(self, n_frames = None):
         ## 9. start data acquisition
@@ -288,7 +338,10 @@ class OSCA02Reader(tssabc.SampleReader):
             self.close()
 
 if __name__ == '__main__':
+    # disable logging for matplotlib
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
     import matplotlib.pyplot as plt
+    import matplotlib.animation as animation
     
     acq_dev = OSCA02Reader()
     sample_rate = 781000
@@ -298,30 +351,31 @@ if __name__ == '__main__':
 
     if 0:
         d = acq_dev.read()
+        n_ignore = 100
 
         # plot the data in chA and chB in the same graph
         plt.figure()
-        t_s = np.arange(0, d.shape[0]) / sample_rate
-        plt.plot(t_s, d[:, 0], '.-', label='chA')
-        plt.plot(t_s, d[:, 1], '.-', label='chB')
+        t_s = np.arange(n_ignore, d.shape[0]) / sample_rate
+        plt.plot(t_s, d[n_ignore:, 0], '.-', label='chA')
+        plt.plot(t_s, d[n_ignore:, 1], '.-', label='chB')
         plt.legend()
         plt.show()
     
     if 1:
-        import matplotlib.animation as animation
-
+        n_ignore = 100
         fig, ax = plt.subplots()
-        t_s = np.arange(0, chunk_size // 2) / sample_rate
-        line1, = ax.plot(t_s, np.zeros(chunk_size // 2), '.-', label='chA')
-        line2, = ax.plot(t_s, np.zeros(chunk_size // 2), '.-', label='chB')
+        t_s = np.arange(n_ignore, chunk_size // 2) / sample_rate
+        line1, = ax.plot(t_s, np.zeros(chunk_size // 2 - n_ignore), '.-', label='chA')
+        line2, = ax.plot(t_s, np.zeros(chunk_size // 2 - n_ignore), '.-', label='chB')
         ax.legend()
 
         def update(frame):
             d = acq_dev.read()
-            line1.set_ydata(d[:, 0])
-            line2.set_ydata(d[:, 1])
+            line1.set_ydata(d[n_ignore:, 0])
+            line2.set_ydata(d[n_ignore:, 1])
             ax.relim()
             ax.autoscale_view()
+            fig.canvas.draw()
             return line1, line2
 
         ani = animation.FuncAnimation(fig, update, blit=True)  # run infinitely
