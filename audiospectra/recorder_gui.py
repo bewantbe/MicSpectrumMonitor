@@ -746,6 +746,32 @@ class AnalyzerParameters:
             "use_dBA"      : False,
             "_adc_conf_keys" : [
                 'sampler_id', 'sample_rate', 'periodsize', 'volt_range'],
+        },
+        "OSCA02": {
+            "sampler_id"   : 'osca02',
+            "device"       : 'default',
+            "device_name"  : 'OSCA02',
+            "sample_rate"  : 781000,
+            "n_channel"    : 2,
+            "volt_range"   : 5,
+            "value_format" : 'U8',
+            "bit_depth"    : 8,
+            "periodsize"   : 64000,
+            "dic_sample_rate" : {
+                '100MHz': 100e6,
+                '12.5MHz': 12.5e6,
+                '781kHz': 781e3,
+                '49kHz': 49e3,
+            },
+            "channel_selected" : [0, 1],
+            "data_queue_max_size" : 1000,
+            "size_chunk"   : 64000 // 32,
+            "size_hop"     : 64000 // 32,
+            "n_ave"        : 1,
+            "spectrogram_duration" : 1.0,
+            "use_dBA"      : False,
+            "_adc_conf_keys" : [
+                'sampler_id', 'sample_rate', 'periodsize', 'volt_range'],
         }
     }
 
@@ -1091,6 +1117,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # connect screenshot button
         ui_dock4.pushButton_screenshot.clicked.connect(self.take_screen_shot)
         # connect device selection comboBox
+        self.on_combobox_dev_refresh()
         self.ui_dock4.comboBox_dev.activated.connect(self.on_combobox_dev_activated)
         # connect sample rate comboBox
         self.ui_dock4.comboBox_sr.activated.connect(self.on_combobox_sr_activated)
@@ -1183,6 +1210,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.update_request
         )
         logging.info('rec restarted')
+
+    def on_combobox_dev_refresh(self):
+        self.ui_dock4.comboBox_dev.clear()
+        self.ui_dock4.comboBox_dev.addItems(self.ana_param.devices_conf_default.keys())
+        self.ui_dock4.comboBox_dev.addItem('refresh list')
+        self.ui_dock4.comboBox_dev.addItem('none')
+        self.ui_dock4.comboBox_dev.setCurrentIndex(0)
 
     def on_combobox_dev_activated(self, index):
         dev_name = self.ui_dock4.comboBox_dev.itemText(index)

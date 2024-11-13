@@ -36,3 +36,10 @@ except ImportError:
     logging.warning('AD7606C reader is not available')
 else:
     register_sampler(AD7606CReader)
+
+try:
+    from .scope_osca02 import OSCA02Reader
+except ImportError:
+    logging.warning('OSCA02 reader is not available')
+else:
+    register_sampler(OSCA02Reader)

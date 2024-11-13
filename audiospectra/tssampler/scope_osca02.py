@@ -14,10 +14,10 @@ from ctypes import (
 import numpy as np
 
 # enable logging to info level
-logging.basicConfig(level=logging.DEBUG)
+#logging.basicConfig(level=logging.DEBUG)
 
-import tssabc     # use as script
-#from . import tssabc    # use as lib
+#import tssabc     # use as script
+from . import tssabc    # use as lib
 
 DLL_ROOT = r'C:\Users\xyy82\soft\LOTO_USB示波器PC软件二次开发SDK_V9\dll\OSCA02_2002_H02\x64'
 OBJdll = windll.LoadLibrary(os.path.join(DLL_ROOT, "USBInterFace.dll"))
@@ -132,8 +132,8 @@ class OSCA02Reader(tssabc.SampleReader):
     def __init__(self):
         self.initilized = False
 
-    def init(self, sample_rate, chunk_size, volt_a, volt_b, stream_callback=None, **kwargs):
-        self.chunk_size = chunk_size
+    def init(self, sample_rate, periodsize, volt_range=5, stream_callback=None, **kwargs):
+        self.chunk_size = periodsize * 2
 
         ## 1. set oscilloscope device model
         SpecifyDevIdx(c_int(6))            # 6: OSCA02
@@ -170,7 +170,7 @@ class OSCA02Reader(tssabc.SampleReader):
         logging.info("X: 在步骤3和4之间，初始化硬件触发, 如果触发出问题, 请注释掉这个方法不调用")
 
         ## 4. set buffer size to 128KB, e.g. 64KB per channel
-        SetInfo(c_double(1),  c_double(0),  c_ubyte(0x11),  c_int(0),   c_uint(0),  c_uint(chunk_size) )
+        SetInfo(c_double(1),  c_double(0),  c_ubyte(0x11),  c_int(0),   c_uint(0),  c_uint(self.chunk_size) )
         logging.info("4. 设置使用的缓冲区为128K字节, 即每个通道64K字节")
 
         ## 5. set oscilloscope sampling rate to 781kHz
@@ -204,6 +204,11 @@ class OSCA02Reader(tssabc.SampleReader):
         #USBCtrlTrans(c_ubyte(0x23),  c_ushort(0x00),  c_ulong(1))
         #USBCtrlTrans(c_ubyte(0x24),  c_ushort(self.g_CtrlByte1),  c_ulong(1))
         #logging.info("6. 设置通道输入量程 chB 输入量程设置为：-5V ~ +5V")
+
+        if isinstance(volt_range, int):
+            volt_a = volt_b = volt_range
+        elif isinstance(volt_range, (list, tuple)):
+            volt_a, volt_b = volt_range
 
         self.volt_a_max, self.volt_b_max, self.volt_ia, self.volt_ib, self.g_CtrlByte1 = \
             set_volt_range(volt_a, volt_b, self.g_CtrlByte1)
@@ -345,9 +350,10 @@ if __name__ == '__main__':
     
     acq_dev = OSCA02Reader()
     sample_rate = 781000
-    chunk_size = 128 * 1024
+    periodsize = 64 * 1024
     volt = 5  # V
-    acq_dev.init(sample_rate, chunk_size, volt, volt)
+    acq_dev.init(sample_rate, periodsize, volt, volt)
+    sample_rate = acq_dev.sampling_rate
 
     if 0:
         d = acq_dev.read()
@@ -364,9 +370,9 @@ if __name__ == '__main__':
     if 1:
         n_ignore = 100
         fig, ax = plt.subplots()
-        t_s = np.arange(n_ignore, chunk_size // 2) / sample_rate
-        line1, = ax.plot(t_s, np.zeros(chunk_size // 2 - n_ignore), '.-', label='chA')
-        line2, = ax.plot(t_s, np.zeros(chunk_size // 2 - n_ignore), '.-', label='chB')
+        t_s = np.arange(n_ignore, periodsize) / sample_rate
+        line1, = ax.plot(t_s, np.zeros(periodsize - n_ignore), '.-', label='chA')
+        line2, = ax.plot(t_s, np.zeros(periodsize - n_ignore), '.-', label='chB')
         ax.legend()
 
         def update(frame):
