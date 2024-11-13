@@ -13,14 +13,20 @@ from ctypes import (
 )
 import numpy as np
 
-# enable logging to info level
-#logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger('lotoosc')
 
-#import tssabc     # use as script
-from . import tssabc    # use as lib
+if __name__ == '__main__':
+    import tssabc     # use as script
+    # enable logging to info level
+    logging.basicConfig(level=logging.DEBUG)
+else:
+    from . import tssabc    # use as lib
+    logger.setLevel(logging.CRITICAL)
 
-DLL_ROOT = r'C:\Users\xyy82\soft\LOTO_USB示波器PC软件二次开发SDK_V9\dll\OSCA02_2002_H02\x64'
-OBJdll = windll.LoadLibrary(os.path.join(DLL_ROOT, "USBInterFace.dll"))
+#DLL_ROOT = r'C:\Users\xyy82\soft\LOTO_USB示波器PC软件二次开发SDK_V9\dll\OSCA02_2002_H02\x64'
+#OBJdll = windll.LoadLibrary(os.path.join(DLL_ROOT, "USBInterFace.dll"))
+DLL_ROOT = os.path.dirname(os.path.abspath(__file__))
+OBJdll = windll.LoadLibrary(os.path.join(DLL_ROOT, "USBInterFace_OSCA02.dll"))
 
 # functions to communicate with the oscilloscope
 SpecifyDevIdx = OBJdll.SpecifyDevIdx
@@ -137,23 +143,23 @@ class OSCA02Reader(tssabc.SampleReader):
 
         ## 1. set oscilloscope device model
         SpecifyDevIdx(c_int(6))            # 6: OSCA02
-        logging.info("1. 设置当前示波器设备编号为6(OSCA02)!")
+        logger.info("1. 设置当前示波器设备编号为6(OSCA02)!")
 
         ## 2. open device
         OpenRes = DeviceOpen()
         if OpenRes == 0:
-            logging.info("2. 示波器设备连接 成功!")
+            logger.info("2. 示波器设备连接 成功!")
         else:
-            logging.error("2. 示波器设备连接 失败!")
+            logger.error("2. 示波器设备连接 失败!")
             sys.exit(0)
         
         ## 3. get buffer address
         self.g_pBuffer = GetBuffer4Wr(c_int(-1))
         if 0 == self.g_pBuffer:
-            logging.error("GetBuffer Failed!")
+            logger.error("GetBuffer Failed!")
             sys.exit(0)
         else:
-            logging.info("3. 获取数据缓冲区首地址 成功")
+            logger.info("3. 获取数据缓冲区首地址 成功")
 
         # record IO control bits
         self.g_CtrlByte0 = 0
@@ -167,20 +173,20 @@ class OSCA02Reader(tssabc.SampleReader):
         # set trigger position at 50% of the buffer
         USBCtrlTrans(c_ubyte(0x18), c_ushort(0xff), c_ulong(1))
         USBCtrlTrans(c_ubyte(0x17), c_ushort(0x7f), c_ulong(1))
-        logging.info("X: 在步骤3和4之间，初始化硬件触发, 如果触发出问题, 请注释掉这个方法不调用")
+        logger.info("X: 在步骤3和4之间，初始化硬件触发, 如果触发出问题, 请注释掉这个方法不调用")
 
         ## 4. set buffer size to 128KB, e.g. 64KB per channel
         SetInfo(c_double(1),  c_double(0),  c_ubyte(0x11),  c_int(0),   c_uint(0),  c_uint(self.chunk_size) )
-        logging.info("4. 设置使用的缓冲区为128K字节, 即每个通道64K字节")
+        logger.info("4. 设置使用的缓冲区为128K字节, 即每个通道64K字节")
 
         ## 5. set oscilloscope sampling rate to 781kHz
         self.sampling_rate, self.g_CtrlByte0 = sampling_rate_normalization(sample_rate, self.g_CtrlByte0)
         Transres = USBCtrlTrans( c_ubyte(0x94),  c_ushort(self.g_CtrlByte0),  c_ulong(1))
         if 0 == Transres:
-            logging.error("5. error")
+            logger.error("5. error")
             sys.exit(0)
         else:
-            logging.info("5. 设置示波器采样率781Khz")
+            logger.info("5. 设置示波器采样率781Khz")
         
         # Enable channel B
         time.sleep(0.1)
@@ -195,7 +201,7 @@ class OSCA02Reader(tssabc.SampleReader):
         #self.g_CtrlByte1 |= 0x08
         #USBCtrlTrans(c_ubyte(0x22),  c_ushort(0x02),  c_ulong(1))
         #USBCtrlTrans(c_ubyte(0x24),  c_ushort(self.g_CtrlByte1),  c_ulong(1))
-        #logging.info("6. 设置通道输入量程 chA 输入量程设置为：-5V ~ +5V")
+        #logger.info("6. 设置通道输入量程 chA 输入量程设置为：-5V ~ +5V")
         #time.sleep(0.1)
 
         # chB range：-5V ~ +5V
@@ -203,7 +209,7 @@ class OSCA02Reader(tssabc.SampleReader):
         #self.g_CtrlByte1 |= 0x02
         #USBCtrlTrans(c_ubyte(0x23),  c_ushort(0x00),  c_ulong(1))
         #USBCtrlTrans(c_ubyte(0x24),  c_ushort(self.g_CtrlByte1),  c_ulong(1))
-        #logging.info("6. 设置通道输入量程 chB 输入量程设置为：-5V ~ +5V")
+        #logger.info("6. 设置通道输入量程 chB 输入量程设置为：-5V ~ +5V")
 
         if isinstance(volt_range, int):
             volt_a = volt_b = volt_range
@@ -232,22 +238,22 @@ class OSCA02Reader(tssabc.SampleReader):
         self.g_CtrlByte0 &= 0xef # chA DC coupling
         self.g_CtrlByte0 |= 0x10 # chA 0x10:DC coupling, 0x00 AC coupling
         USBCtrlTrans(c_ubyte(0x94),  c_ushort(self.g_CtrlByte0),  c_ulong(1))
-        logging.info("7. 设置通道交直流耦合 设置chA为DC耦合")
+        logger.info("7. 设置通道交直流耦合 设置chA为DC耦合")
         time.sleep(0.1)
 
         self.g_CtrlByte1 &= 0xef # chB DC coupling
         self.g_CtrlByte1 |= 0x10 # chB DC coupling
         Transres = USBCtrlTrans(c_ubyte(0x24),  c_ushort(self.g_CtrlByte1),  c_ulong(1))
-        logging.info("7. 设置通道交直流耦合 设置chB为DC耦合")
+        logger.info("7. 设置通道交直流耦合 设置chB为DC耦合")
 
         ## 8. set trigger mode as non-trigger
         USBCtrlTrans(c_ubyte(0xE7),  c_ushort(0x00),  c_ulong(1))
-        logging.info("8. 设置当前触发模式为 无触发")
+        logger.info("8. 设置当前触发模式为 无触发")
 
         if 0:
             # 8. trigger on rising edge, or turn off green LED
             USBCtrlTrans(c_ubyte(0xC5),  c_ushort(0x00),  c_ulong(1))
-            logging.info("8. 上升沿，或者设置LED绿色灯灭")
+            logger.info("8. 上升沿，或者设置LED绿色灯灭")
         time.sleep(0.1)
 
         return self
@@ -255,7 +261,7 @@ class OSCA02Reader(tssabc.SampleReader):
     def read(self, n_frames = None):
         ## 9. start data acquisition
         USBCtrlTransSimple(c_ulong(0x33))
-        logging.info("9. 控制设备开始AD采集")
+        logger.info("9. 控制设备开始AD采集")
         t1 = time.time()
 
         time_sample = self.chunk_size // 2 / self.sampling_rate
@@ -269,27 +275,27 @@ class OSCA02Reader(tssabc.SampleReader):
             rFillUp = USBCtrlTransSimple(c_ulong(0x50))
 
         if 33 != rFillUp:
-            logging.error("10. 缓冲区数据没有蓄满(查询结果)")
+            logger.error("10. 缓冲区数据没有蓄满(查询结果)")
             sys.exit(0)
         else:
-            logging.info("10. 缓冲区数据已经蓄满(查询结果)")
+            logger.info("10. 缓冲区数据已经蓄满(查询结果)")
 
         rBulkRes = AiReadBulkData( c_ulong(64 * 1024 * 2) ,  c_uint(1),  c_ulong(2000) , self.g_pBuffer,  c_ubyte(0),  c_uint(0))
         if 0 == rBulkRes:
-            logging.info("11. 传输获取采集的数据 成功!")
+            logger.info("11. 传输获取采集的数据 成功!")
         else:
-            logging.error("11. 传输获取采集的数据 失败!")
+            logger.error("11. 传输获取采集的数据 失败!")
             #sys.exit(0)
 
-        logging.info("X: waiting data transmition... ")
+        logger.info("X: waiting data transmition... ")
         ret = EventCheck(c_int(int(timeout_ms)))  # cost about 10~17ms
         t2 = time.time()
         if -1 == ret:
-            logging.error("X: wrong calling")
+            logger.error("X: wrong calling")
             sys.exit(0)
         elif 0x555 == ret:
-            logging.error("X: timeout")
-        logging.debug(f"X: sampling data available, ret = {ret}, wait time = {t2 - t1:.3f} s, timeout = {timeout_ms:.3f} ms")
+            logger.error("X: timeout")
+        logger.debug(f"X: sampling data available, ret = {ret}, wait time = {t2 - t1:.3f} s, timeout = {timeout_ms:.3f} ms")
 
         # note: g_pBuffer is ubyte array
         sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(self.chunk_size // 2, 2))
@@ -304,26 +310,26 @@ class OSCA02Reader(tssabc.SampleReader):
     def read_sleep(self, n_frames = None):
         ## 9. start data acquisition
         USBCtrlTransSimple(c_ulong(0x33))
-        logging.info("9. 控制设备开始AD采集")
+        logger.info("9. 控制设备开始AD采集")
 
-        logging.info("X: sleep200ms 等待采集.... ")
+        logger.info("X: sleep200ms 等待采集.... ")
         time.sleep(0.200)
 
         ## 10. check if data acquisition and storage is complete, if so, return 33
         rFillUp = USBCtrlTransSimple(c_ulong(0x50))
         if 33 != rFillUp:
-            logging.error("10. 缓冲区数据没有蓄满(查询结果)")
+            logger.error("10. 缓冲区数据没有蓄满(查询结果)")
             sys.exit(0)
         else:
-            logging.info("10. 缓冲区数据已经蓄满(查询结果)")
+            logger.info("10. 缓冲区数据已经蓄满(查询结果)")
 
         ## 11. get samples, where the size is determined by SetInfo()
         rBulkRes = AiReadBulkData( c_ulong(64 * 1024 * 2) ,  c_uint(1),  c_ulong(2000) , self.g_pBuffer,  c_ubyte(0),  c_uint(0))
 
         if 0 == rBulkRes:
-            logging.info("11. 传输获取采集的数据 成功!")
+            logger.info("11. 传输获取采集的数据 成功!")
         else:
-            logging.error("11. 传输获取采集的数据 失败!")
+            logger.error("11. 传输获取采集的数据 失败!")
             sys.exit(0)
 
         # note: g_pBuffer is ubyte array
@@ -334,7 +340,7 @@ class OSCA02Reader(tssabc.SampleReader):
         return sample_d
 
     def close(self):
-        logging.info("closing device...")
+        logger.info("closing device...")
         DeviceClose()
         self.initilized = False
 
@@ -343,7 +349,7 @@ class OSCA02Reader(tssabc.SampleReader):
             self.close()
 
 if __name__ == '__main__':
-    # disable logging for matplotlib
+    # disable logger for matplotlib
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
     import matplotlib.pyplot as plt
     import matplotlib.animation as animation
