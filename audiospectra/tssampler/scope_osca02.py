@@ -72,8 +72,10 @@ def sampling_rate_normalization(sr_request, g_CtrlByte0):
     g_CtrlByte0 |= sr_cmdx[sr_idx]
     return sr_list[sr_idx], g_CtrlByte0
 
+osc_volt_series = [8.0, 5.0, 2.5, 1.0, 0.5, 0.25, 0.1]
+
 def set_volt_range(va_request, vb_request, g_CtrlByte1):
-    v_list = np.array([8, 5, 2.5, 1, 0.5, 0.25, 0.1])
+    v_list = np.array(osc_volt_series)
     mask_a_and = 0xF7
     mask_a_or  = [0x08, 0x08, 0x08, 0x08, 0x00, 0x00, 0x00]
     mask_a_t   = [0x00, 0x02, 0x04, 0x06, 0x02, 0x04, 0x06]
@@ -109,7 +111,7 @@ def read_volt_calib_data():
              0x12, 0x13,  # 0.5
              0x10, 0x11,  # 0.25
              0xA0, 0xA1]  # 0.1
-    zero_volt_offset = np.zeros((7, 2), dtype=np.uint8)
+    zero_volt_offset = np.zeros((7, 2), dtype=np.float64)
     for j, cmd in enumerate(zvcmd):
         zero_volt_offset[j // 2, j % 2] = USBCtrlTrans(0x90, cmd, 1)
 
@@ -123,13 +125,43 @@ def read_volt_calib_data():
              0x09, 0x0C,  # 0.5
              0x0A, 0x0D,  # 0.25
              0x2A, 0x2D]  # 0.1
-    volt_scale = np.zeros((7, 2), dtype=np.uint8)
+    volt_scale = np.zeros((7, 2), dtype=np.float64)
     for j, cmd in enumerate(vscmd):
         volt_scale[j // 2, j % 2] = USBCtrlTrans(0x90, cmd, 1)
+    volt_scale = volt_scale * 2 / 255
 
-    print('volt scaling:\n', volt_scale * 2 / 255)
+    volt_scale[1, :] = [1.0333, 1.0079]
+    print('volt scaling:\n', volt_scale)
 
     return zero_volt_offset, volt_scale
+
+def user_volt_calib_data(raw_volt_offset_list = None, raw_volt_scale_list = None):
+    # For calculation of volt_offsets, volt_scale
+    # Final volt_true = (volt_raw - volt_offset) * (v_range * 2 / 255 * volt_scale)
+
+    # user calibration point
+    
+    ## version 1
+    j = 3 # 5V chA
+    v_range = osc_volt_series[j // 2]
+    v_ref0 = 0.0
+    v_ref1 = 3.210
+    v_raw0 = 136.89
+    v_raw1 = 220.18
+    volt_scale = (v_ref1 - v_ref0) / (v_raw1 - v_raw0) / (2 * v_range / 255)
+    volt_offset = v_raw0 - v_ref0 / (v_ref1 - v_ref0) * (v_raw1 - v_raw0)
+
+    assert abs((v_raw0 - volt_offset) * (v_range * 2 / 255 * volt_scale) - v_ref0) < 1e-10
+    assert abs((v_raw1 - volt_offset) * (v_range * 2 / 255 * volt_scale) - v_ref1) < 1e-10
+
+    print(f'volt_offset: {volt_offset}, volt_scale: {volt_scale}')
+
+    if raw_volt_offset_list is not None:
+        raw_volt_offset_list[j // 2, j % 2] = volt_offset
+        raw_volt_scale_list[j // 2, j % 2] = volt_scale
+        return raw_volt_offset_list, raw_volt_scale_list
+    else:
+        return volt_offset, volt_scale
 
 class OSCA02Reader(tssabc.SampleReader):
     
@@ -221,13 +253,13 @@ class OSCA02Reader(tssabc.SampleReader):
         self.volt_offsets, self.volt_scale = read_volt_calib_data()
         self.volt_a_offset = self.volt_offsets[self.volt_ia, 0]
         self.volt_b_offset = self.volt_offsets[self.volt_ib, 1]
-        self.volt_a_scale = self.volt_scale[self.volt_ia, 0] * 2 / 255
-        self.volt_b_scale = self.volt_scale[self.volt_ib, 1] * 2 / 255
-        if 0:
+        self.volt_a_scale = self.volt_scale[self.volt_ia, 0]
+        self.volt_b_scale = self.volt_scale[self.volt_ib, 1]
+        if 1:
             self.f_volt_cha = lambda va_bytes: \
-                (np.float64(va_bytes) - self.volt_a_offset) * (self.volt_a_max / 255 * self.volt_a_scale)
+                (np.float64(va_bytes) - self.volt_a_offset) * (self.volt_a_max * 2 / 255 * self.volt_a_scale)
             self.f_volt_chb = lambda vb_bytes: \
-                (np.float64(vb_bytes) - self.volt_b_offset) * (self.volt_b_max / 255 * self.volt_b_scale)
+                (np.float64(vb_bytes) - self.volt_b_offset) * (self.volt_b_max * 2 / 255 * self.volt_b_scale)
         else:
             self.f_volt_cha = lambda va_bytes: \
                 (np.float64(va_bytes) - self.volt_a_offset) * (2 * self.volt_a_max / 255)
@@ -301,11 +333,13 @@ class OSCA02Reader(tssabc.SampleReader):
         sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(self.chunk_size // 2, 2))
         assert (sample_d.shape[0] == self.chunk_size // 2) and (sample_d.shape[1] == 2)
 
-        sample_f = np.zeros_like(sample_d, dtype=np.float32)
-        sample_f[:, 0] = self.f_volt_cha(sample_d[:, 0])
-        sample_f[:, 1] = self.f_volt_chb(sample_d[:, 1])
+        return sample_d
 
-        return sample_f
+        #sample_f = np.zeros_like(sample_d, dtype=np.float32)
+        #sample_f[:, 0] = self.f_volt_cha(sample_d[:, 0])
+        #sample_f[:, 1] = self.f_volt_chb(sample_d[:, 1])
+
+        #return sample_f
 
     def read_sleep(self, n_frames = None):
         ## 9. start data acquisition
@@ -361,15 +395,20 @@ if __name__ == '__main__':
     acq_dev.init(sample_rate, periodsize, volt, volt)
     sample_rate = acq_dev.sampling_rate
 
+    user_volt_calib_data()
+
     if 0:
         d = acq_dev.read()
+        v = np.zeros_like(d, dtype=np.float32)
+        v[:, 0] = acq_dev.f_volt_cha(d[:, 0])
+        v[:, 1] = acq_dev.f_volt_cha(d[:, 1])
         n_ignore = 100
 
         # plot the data in chA and chB in the same graph
         plt.figure()
-        t_s = np.arange(n_ignore, d.shape[0]) / sample_rate
-        plt.plot(t_s, d[n_ignore:, 0], '.-', label='chA')
-        plt.plot(t_s, d[n_ignore:, 1], '.-', label='chB')
+        t_s = np.arange(n_ignore, v.shape[0]) / sample_rate
+        plt.plot(t_s, v[n_ignore:, 0], '.-', label='chA')
+        plt.plot(t_s, v[n_ignore:, 1], '.-', label='chB')
         plt.legend()
         plt.show()
     
@@ -383,8 +422,15 @@ if __name__ == '__main__':
 
         def update(frame):
             d = acq_dev.read()
-            line1.set_ydata(d[n_ignore:, 0])
-            line2.set_ydata(d[n_ignore:, 1])
+            v = np.zeros_like(d, dtype=np.float32)
+            v[:, 0] = acq_dev.f_volt_cha(d[:, 0])
+            v[:, 1] = acq_dev.f_volt_cha(d[:, 1])
+            print(f'mean volt: {v[n_ignore:, 0].mean():.5g},'
+                             f'{v[n_ignore:, 1].mean():.5g}')
+            print(f'mean byte: {d[n_ignore:, 0].astype(np.float32).mean():.5g},'
+                             f'{d[n_ignore:, 1].astype(np.float32).mean():.5g}')
+            line1.set_ydata(v[n_ignore:, 0])
+            line2.set_ydata(v[n_ignore:, 1])
             ax.relim()
             ax.autoscale_view()
             fig.canvas.draw()
