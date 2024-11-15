@@ -144,24 +144,40 @@ def user_volt_calib_data(raw_volt_offset_list = None, raw_volt_scale_list = None
     ## version 1
     j = 3 # 5V chA
     v_range = osc_volt_series[j // 2]
-    v_ref0 = 0.0
-    v_ref1 = 3.210
-    v_raw0 = 136.89
-    v_raw1 = 220.18
-    volt_scale = (v_ref1 - v_ref0) / (v_raw1 - v_raw0) / (2 * v_range / 255)
-    volt_offset = v_raw0 - v_ref0 / (v_ref1 - v_ref0) * (v_raw1 - v_raw0)
 
-    assert abs((v_raw0 - volt_offset) * (v_range * 2 / 255 * volt_scale) - v_ref0) < 1e-10
-    assert abs((v_raw1 - volt_offset) * (v_range * 2 / 255 * volt_scale) - v_ref1) < 1e-10
+    calib_data_array = np.array([
+        # v_ref0, v_raw0, v_ref1, v_raw0
+        [0.0, 135.97, 8.000, 261.99],     # 8V chA
+        [0.0, 132.78, 8.000, 257.83],     # 8V chB
+        [0.0, 136.91, 3.210, 220.18],     # 5V chA
+        [0.0, 133.08, 5.000, 259.58],     # 5V chB
+        [0.0, 139.67, 2.500, 274.02],     # 2.5V chA
+        [0.0, 134.49, 2.500, 268.84],     # 2.5V chB
+        [0.0, 140.38, 1.000, 226.85],     # 1V chA
+        [0.0, 135.27, 1.000, 221.74],     # 1V chB
+        [0.0, 136.95, 0.500, 262.00],     # 0.5V chA
+        [0.0, 133.09, 0.500, 257.18],     # 0.5V chB
+        [0.0, 138.82, 0.250, 270.98],     # 0.25V chA
+        [0.0, 134.46, 0.250, 266.62],     # 0.25V chB
+        [0.0, 140.64, 0.100, 226.65],     # 0.1V chA
+        [0.0, 135.22, 0.100, 220.33],     # 0.1V chB
+    ])
 
-    print(f'volt_offset: {volt_offset}, volt_scale: {volt_scale}')
+    v_range = np.vstack([osc_volt_series, osc_volt_series]).T.flatten()
+    v_ref0 = calib_data_array[:, 0]
+    v_raw0 = calib_data_array[:, 1]
+    v_ref1 = calib_data_array[:, 2]
+    v_raw1 = calib_data_array[:, 3]
+    raw_volt_scale_list  = (v_ref1 - v_ref0) / (v_raw1 - v_raw0) / (2 * v_range / 255)
+    raw_volt_offset_list = v_raw0 - v_ref0 / (v_ref1 - v_ref0) * (v_raw1 - v_raw0)
 
-    if raw_volt_offset_list is not None:
-        raw_volt_offset_list[j // 2, j % 2] = volt_offset
-        raw_volt_scale_list[j // 2, j % 2] = volt_scale
-        return raw_volt_offset_list, raw_volt_scale_list
-    else:
-        return volt_offset, volt_scale
+    #assert abs((v_raw0 - volt_offset) * (v_range * 2 / 255 * volt_scale) - v_ref0) < 1e-10
+    #assert abs((v_raw1 - volt_offset) * (v_range * 2 / 255 * volt_scale) - v_ref1) < 1e-10
+
+    print('volt_offset:\n', raw_volt_offset_list)
+    print('volt_scale: \n', raw_volt_scale_list)
+
+    return raw_volt_offset_list, raw_volt_scale_list
 
 class OSCA02Reader(tssabc.SampleReader):
     
@@ -243,7 +259,7 @@ class OSCA02Reader(tssabc.SampleReader):
         #USBCtrlTrans(c_ubyte(0x24),  c_ushort(self.g_CtrlByte1),  c_ulong(1))
         #logger.info("6. 设置通道输入量程 chB 输入量程设置为：-5V ~ +5V")
 
-        if isinstance(volt_range, int):
+        if isinstance(volt_range, (int, float, np.float64, np.float32)):
             volt_a = volt_b = volt_range
         elif isinstance(volt_range, (list, tuple)):
             volt_a, volt_b = volt_range
@@ -391,7 +407,7 @@ if __name__ == '__main__':
     acq_dev = OSCA02Reader()
     sample_rate = 781000
     periodsize = 64 * 1024
-    volt = 5  # V
+    volt = 8  # V
     acq_dev.init(sample_rate, periodsize, volt, volt)
     sample_rate = acq_dev.sampling_rate
 
@@ -420,6 +436,8 @@ if __name__ == '__main__':
         line2, = ax.plot(t_s, np.zeros(periodsize - n_ignore), '.-', label='chB')
         ax.legend()
 
+        set_v = []
+
         def update(frame):
             d = acq_dev.read()
             v = np.zeros_like(d, dtype=np.float32)
@@ -427,8 +445,12 @@ if __name__ == '__main__':
             v[:, 1] = acq_dev.f_volt_cha(d[:, 1])
             print(f'mean volt: {v[n_ignore:, 0].mean():.5g},'
                              f'{v[n_ignore:, 1].mean():.5g}')
-            print(f'mean byte: {d[n_ignore:, 0].astype(np.float32).mean():.5g},'
-                             f'{d[n_ignore:, 1].astype(np.float32).mean():.5g}')
+            v_m_a = d[n_ignore:, 0].astype(np.float32).mean()
+            v_m_b = d[n_ignore:, 1].astype(np.float32).mean()
+            if frame > 10:
+                set_v.append([v_m_a, v_m_b])
+            print(f'mean byte: {v_m_a:.5g},'
+                             f'{v_m_b:.5g}')
             line1.set_ydata(v[n_ignore:, 0])
             line2.set_ydata(v[n_ignore:, 1])
             ax.relim()
@@ -436,8 +458,10 @@ if __name__ == '__main__':
             fig.canvas.draw()
             return line1, line2
 
-        ani = animation.FuncAnimation(fig, update, blit=True)  # run infinitely
+        ani = animation.FuncAnimation(fig, update, frames=2**30, blit=True)  # run infinitely
         #ani = animation.FuncAnimation(fig, update, frames=10, blit=True, repeat=False)  # run 10 frames
         plt.show()
+
+        print(np.array(set_v).mean(axis=0))
 
     acq_dev.close()
