@@ -49,7 +49,18 @@ def log10_(x):
         return log10(x)
 
 class recThread(threading.Thread):
-    """ Recorder thread """
+    """Recorder thread for initializing and reading the sampler.
+
+    Sampler may be PCM audio, DAQ, Oscilloscope etc.
+    Set sampler parameters in the dict `conf`, `conf` must contain `sampler_id`
+    and corresponding parameters, see `tssampler` for details.
+
+    Samples are pushed to the buffer queue `buf_que`, downstream code must
+    process (pop) the data in time to avoid RAM overflow.
+
+    So far, there is no way to change sampler parameters on-the-fly.
+    To change any parameter, the thread must be destroyed and recreated.
+    """
     def __init__(self, name, buf_que, conf):
         threading.Thread.__init__(self)
         self.name = name
@@ -584,7 +595,10 @@ def process_func(analyzer_data, condition_variable, chunk):
         condition_variable.notify()
 
 class sampleChunkThread(threading.Thread):
-    """ data dispatch thread """
+    """ Thread to redirect audio samples to process function
+
+    The redirection account for the chunk size and hop size (overlap).
+    """
     def __init__(self, name, func_process, buf_que, channel_select, sz_chunk, sz_hop=0, callback_raw=None):
         """
         Param:
@@ -619,8 +633,18 @@ class sampleChunkThread(threading.Thread):
                 s = self.buf_que.get(True, 0.1)
             except queue.Empty:
                 s = []
-            if (len(s) == 0):
+            # check for special condition
+            if isinstance(s, int):
+                if s == 0: # discontinued sampling
+                    # reset the chunk pointer to avoid feeding
+                    # discontinuous data to FFT
+                    chunk_pos = 0
+                    continue
+                # unknown condition, raise an error
+                raise ValueError('Unknown signal from recThread.')
+            elif len(s) == 0:
                 continue
+            # select channel(s)
             if len(s.shape) == 2:
                 s = s[:, self.channel_select]
             if self.callback_raw is not None:

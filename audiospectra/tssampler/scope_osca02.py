@@ -185,7 +185,8 @@ class OSCA02Reader(tssabc.SampleReader):
     def __init__(self):
         self.initilized = False
 
-    def init(self, sample_rate, periodsize, volt_range=5, stream_callback=None, **kwargs):
+    def init(self, sample_rate, periodsize, volt_range=5, stream_callback=None, 
+             indicate_discontinuous = False, **kwargs):
         self.chunk_size = periodsize * 2
 
         ## 1. set oscilloscope device model
@@ -308,9 +309,22 @@ class OSCA02Reader(tssabc.SampleReader):
             logger.debug("8. 上升沿，或者设置LED绿色灯灭")
         time.sleep(0.1)
 
+        self.indicate_discontinuous = indicate_discontinuous
+        self._discontinuity_signal = 0
+
+        self.initilized = True
+
         return self
 
     def read(self, n_frames = None):
+        
+        # send discontinuity signal if any
+        if self.indicate_discontinuous:
+            if self._discontinuity_signal:
+                self._discontinuity_signal = 0
+                return 0
+            self._discontinuity_signal = 1
+
         ## 9. start data acquisition
         USBCtrlTransSimple(c_ulong(0x33))
         logger.debug("9. 控制设备开始AD采集")
@@ -414,8 +428,6 @@ if __name__ == '__main__':
     volt = 8  # V
     acq_dev.init(sample_rate, periodsize, volt, volt)
     sample_rate = acq_dev.sampling_rate
-
-    user_volt_calib_data()
 
     if 0:
         d = acq_dev.read()

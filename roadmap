@@ -88,6 +88,12 @@ Targets for v0.5
 * Show theory lower bound of spectrum and RMS.
   - done.
 
+Targets for v0.6
+* Add device support for USB oscilloscope.
+  - allow discontinued samplings.
+* Add waveform sync (trigger) function, and show frequency in it.
+
+
 Features under consideration
 ----------------------------
 
@@ -102,9 +108,11 @@ Target for v0.6 or later
 * rework the drop down list.
 * rework adc.read(), make it more clear the format of output.
 * Reording tssampler init parameters.
+* add to devices_conf_default from tssampler.
 * Move ADC parameters to ADC tssampler class.
 * Add advanced setting for device parameters.
 * Rename tssamplers.
+* replace print() to log() in record_wave.py
 * Use true multi-thread (such as Qt thread) for recorder and STFT analyzer.
 * Clearn up logging and dbg_print and print.
 * Make UI adapt its size automatically (like button size by text length), adapt different DPI.
@@ -121,7 +129,5 @@ Target for v0.6 or later
 * consider support RF64 format for wav file, e.g.
   - using soundfile, https://pypi.org/project/soundfile/
   - using pysndfile, https://pypi.org/project/pysndfile/, https://forge-2.ircam.fr/roebel/pysndfile
-* Add waveform sync (trigger) function, and show frequency in it.
-* Add device support for USB oscilloscope.
 * Add device support for [Comedi](http://comedi.org/) in Linux.
 * Allow add Equalizer.

@@ -10,6 +10,8 @@
 #   # cd audiospectra/
 #   python recorder_gui.py
 
+# This file contains GUI part of the audio spectrum anlyzer.
+
 # Contact: xyy <bewantbe@gmail.com>
 # Github: https://github.com/bewantbe/MicSpectrumMonitor
 
@@ -757,6 +759,7 @@ class AnalyzerParameters:
             "value_format" : 'U8',
             "bit_depth"    : 8,
             "periodsize"   : 64000,
+            "indicate_discontinuous" : True,
             "dic_sample_rate" : {
                 '100MHz': 100e6,
                 '12.5MHz': 12.5e6,
@@ -771,7 +774,8 @@ class AnalyzerParameters:
             "spectrogram_duration" : 1.0,
             "use_dBA"      : False,
             "_adc_conf_keys" : [
-                'sampler_id', 'sample_rate', 'periodsize', 'volt_range'],
+                'sampler_id', 'sample_rate', 'periodsize', 'volt_range',
+                'indicate_discontinuous'],
         }
     }
 
