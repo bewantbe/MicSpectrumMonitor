@@ -1004,8 +1004,8 @@ class AudioPipeline():
 
     def proc_orig_data(self, data_chunk):
         ## usually called from data processing thread
-        # if we are ready to write data, then do it (but
-        # do not cost too much CPU/IO time, let the other thread to do the actual work)
+        # if we are ready to write data, then do it (but avoid
+        # costing too much CPU/IO time, let the other thread to do the actual work)
         if self.audio_saver_manager.is_rec_on():
             self.audio_saver_manager.feed_data(data_chunk)
 

@@ -186,7 +186,7 @@ class OSCA02Reader(tssabc.SampleReader):
         self.initilized = False
 
     def init(self, sample_rate, periodsize, volt_range=5, stream_callback=None, 
-             indicate_discontinuous = False, **kwargs):
+             indicate_discontinuous = False, n_initial_discard = 100 , **kwargs):
         self.chunk_size = periodsize * 2
 
         ## 1. set oscilloscope device model
@@ -313,6 +313,7 @@ class OSCA02Reader(tssabc.SampleReader):
         self._discontinuity_signal = 0
 
         self.initilized = True
+        self.n_initial_discard = n_initial_discard
 
         return self
 
@@ -367,7 +368,7 @@ class OSCA02Reader(tssabc.SampleReader):
         sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(self.chunk_size // 2, 2))
         assert (sample_d.shape[0] == self.chunk_size // 2) and (sample_d.shape[1] == 2)
 
-        return sample_d
+        return sample_d[self.n_initial_discard:, :]
 
         #sample_f = np.zeros_like(sample_d, dtype=np.float32)
         #sample_f[:, 0] = self.f_volt_cha(sample_d[:, 0])
@@ -426,7 +427,7 @@ if __name__ == '__main__':
     sample_rate = 781000
     periodsize = 64 * 1024
     volt = 8  # V
-    acq_dev.init(sample_rate, periodsize, volt, volt)
+    acq_dev.init(sample_rate, periodsize, volt, n_initial_discard=100)
     sample_rate = acq_dev.sampling_rate
 
     if 0:
@@ -434,22 +435,20 @@ if __name__ == '__main__':
         v = np.zeros_like(d, dtype=np.float32)
         v[:, 0] = acq_dev.f_volt_cha(d[:, 0])
         v[:, 1] = acq_dev.f_volt_chb(d[:, 1])
-        n_ignore = 100
 
         # plot the data in chA and chB in the same graph
         plt.figure()
-        t_s = np.arange(n_ignore, v.shape[0]) / sample_rate
-        plt.plot(t_s, v[n_ignore:, 0], '.-', label='chA')
-        plt.plot(t_s, v[n_ignore:, 1], '.-', label='chB')
+        t_s = np.arange(v.shape[0]) / sample_rate
+        plt.plot(t_s, v[:, 0], '.-', label='chA')
+        plt.plot(t_s, v[:, 1], '.-', label='chB')
         plt.legend()
         plt.show()
     
     if 1:
-        n_ignore = 100
         fig, ax = plt.subplots()
-        t_s = np.arange(n_ignore, periodsize) / sample_rate
-        line1, = ax.plot(t_s, np.zeros(periodsize - n_ignore), '.-', label='chA')
-        line2, = ax.plot(t_s, np.zeros(periodsize - n_ignore), '.-', label='chB')
+        t_s = np.arange(acq_dev.n_initial_discard, periodsize) / sample_rate
+        line1, = ax.plot(t_s, np.zeros(periodsize - acq_dev.n_initial_discard), '.-', label='chA')
+        line2, = ax.plot(t_s, np.zeros(periodsize - acq_dev.n_initial_discard), '.-', label='chB')
         ax.legend()
 
         set_v = []
@@ -459,16 +458,16 @@ if __name__ == '__main__':
             v = np.zeros_like(d, dtype=np.float32)
             v[:, 0] = acq_dev.f_volt_cha(d[:, 0])
             v[:, 1] = acq_dev.f_volt_chb(d[:, 1])
-            print(f'mean volt: {v[n_ignore:, 0].mean():.5g},'
-                             f'{v[n_ignore:, 1].mean():.5g}')
-            v_m_a = d[n_ignore:, 0].astype(np.float32).mean()
-            v_m_b = d[n_ignore:, 1].astype(np.float32).mean()
+            print(f'mean volt: {v[:, 0].mean():.5g},'
+                             f'{v[:, 1].mean():.5g}')
+            v_m_a = d[:, 0].astype(np.float32).mean()
+            v_m_b = d[:, 1].astype(np.float32).mean()
             if frame > 5:
                 set_v.append([v_m_a, v_m_b])
             print(f'mean byte: {v_m_a:.5g},'
                              f'{v_m_b:.5g}')
-            line1.set_ydata(v[n_ignore:, 0])
-            line2.set_ydata(v[n_ignore:, 1])
+            line1.set_ydata(v[:, 0])
+            line2.set_ydata(v[:, 1])
             ax.relim()
             ax.autoscale_view()
             fig.canvas.draw()

@@ -92,13 +92,17 @@ Targets for v0.6
 * Add device support for USB oscilloscope.
   - allow discontinued samplings.
 * Add waveform sync (trigger) function, and show frequency in it.
-
+* Fix bug about OSCA02 discontinuous sampling adaptation problem.
 
 Features under consideration
 ----------------------------
 
 Target for v0.6 or later
 
+* use cascade queues to better buffer the data, e.g.
+  sampler -> dispatcher -> wavwriter
+                        -> STFT analyzer
+  Each stage has its own thread.
 * Remove sample mean from the signal before output
   - (e.g. using a order 1 filter to get mean).
 * Add Copyright etc in the GUI.
