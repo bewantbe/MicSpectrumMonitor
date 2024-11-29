@@ -6,7 +6,6 @@ import sys
 import time
 import logging
 from ctypes import (
-    windll,
     POINTER,
     c_ubyte, c_ushort, c_int, c_uint, c_ulong,
     c_double,
@@ -14,7 +13,9 @@ from ctypes import (
 import numpy as np
 
 logger = logging.getLogger('lotoosc')
+_t_start = time.time()
 
+# when running as a script, set the logging level to show more
 if __name__ == '__main__':
     import tssabc     # use as script
     # enable logging to info level
@@ -23,44 +24,170 @@ if __name__ == '__main__':
 else:
     from . import tssabc    # use as lib
     logger.setLevel(logging.CRITICAL)
+    #logging.basicConfig(level=logging.INFO)
 
-#DLL_ROOT = r'C:\Users\xyy82\soft\LOTO_USB示波器PC软件二次开发SDK_V9\dll\OSCA02_2002_H02\x64'
-#OBJdll = windll.LoadLibrary(os.path.join(DLL_ROOT, "USBInterFace.dll"))
-DLL_ROOT = os.path.dirname(os.path.abspath(__file__))
-OBJdll = windll.LoadLibrary(os.path.join(DLL_ROOT, "USBInterFace_OSCA02.dll"))
+if sys.platform == 'win32':
+    from ctypes import windll
+    #DLL_ROOT = r'C:\Users\xyy82\soft\LOTO_USB示波器PC软件二次开发SDK_V9\dll\OSCA02_2002_H02\x64'
+    #OBJdll = windll.LoadLibrary(os.path.join(DLL_ROOT, "USBInterFace.dll"))
+    DLL_ROOT = os.path.dirname(os.path.abspath(__file__))
+    OBJdll = windll.LoadLibrary(os.path.join(DLL_ROOT, "USBInterFace_OSCA02.dll"))
 
-# functions to communicate with the oscilloscope
-SpecifyDevIdx = OBJdll.SpecifyDevIdx
-SpecifyDevIdx.argtypes = [c_int]
+    # functions to communicate with the oscilloscope
+    SpecifyDevIdx = OBJdll.SpecifyDevIdx
+    SpecifyDevIdx.argtypes = [c_int]
 
-DeviceOpen = OBJdll.DeviceOpen
-DeviceOpen.restype = c_ulong
+    DeviceOpen = OBJdll.DeviceOpen
+    DeviceOpen.restype = c_ulong
 
-GetBuffer4Wr = OBJdll.GetBuffer4Wr
-GetBuffer4Wr.argtypes = [c_int]
-GetBuffer4Wr.restype = POINTER(c_ubyte)
+    GetBuffer4Wr = OBJdll.GetBuffer4Wr
+    GetBuffer4Wr.argtypes = [c_int]
+    GetBuffer4Wr.restype = POINTER(c_ubyte)
 
-USBCtrlTrans = OBJdll.USBCtrlTrans
-USBCtrlTrans.argtypes = [c_ubyte, c_ushort, c_ulong]
-USBCtrlTrans.restype = c_ubyte
+    USBCtrlTrans = OBJdll.USBCtrlTrans
+    USBCtrlTrans.argtypes = [c_ubyte, c_ushort, c_ulong]
+    USBCtrlTrans.restype = c_ubyte
 
-SetInfo = OBJdll.SetInfo
-SetInfo.argtypes = [c_double, c_double, c_ubyte, c_int, c_uint,  c_uint]
+    SetInfo = OBJdll.SetInfo
+    SetInfo.argtypes = [c_double, c_double, c_ubyte, c_int, c_uint,  c_uint]
 
-USBCtrlTransSimple = OBJdll.USBCtrlTransSimple
-USBCtrlTransSimple.argtypes = [c_ulong]
-USBCtrlTransSimple.restype = c_ulong
+    USBCtrlTransSimple = OBJdll.USBCtrlTransSimple
+    USBCtrlTransSimple.argtypes = [c_ulong]
+    USBCtrlTransSimple.restype = c_ulong
 
-AiReadBulkData = OBJdll.AiReadBulkData
-AiReadBulkData.argtypes = [c_ulong, c_uint, c_ulong, POINTER(c_ubyte), c_ubyte, c_uint]
-AiReadBulkData.restype = c_ulong
+    AiReadBulkData = OBJdll.AiReadBulkData
+    AiReadBulkData.argtypes = [c_ulong, c_uint, c_ulong, POINTER(c_ubyte), c_ubyte, c_uint]
+    AiReadBulkData.restype = c_ulong
 
-DeviceClose = OBJdll.DeviceClose
-DeviceClose.restype = c_ulong
+    DeviceClose = OBJdll.DeviceClose
+    DeviceClose.restype = c_ulong
 
-EventCheck = OBJdll.EventCheck
-EventCheck.argtypes = [c_int]
-EventCheck.restype = c_int
+    EventCheck = OBJdll.EventCheck
+    EventCheck.argtypes = [c_int]
+    EventCheck.restype = c_int
+else:  # assume linux
+    import usb.core
+    import usb.util
+    global _dev, _dev_cfg
+    global _osc_id         # likely for indexing the oscilloscope
+    _id_vendor_product_map = {
+        6: (0x8312, 0x8a02),  # OSCA02
+    }
+
+    # debug decorator
+    def pdebug(func):
+        def wrapper(*args, **kwargs):
+            # get current time starting from program start
+            t = time.time() - _t_start
+            print(f't = {t:7.3f}: calling {func.__name__} with args: {args}, kwargs: {kwargs}')
+            ret = func(*args, **kwargs)
+            t = time.time() - _t_start
+            print(f't = {t:7.3f}: return: {ret}')
+            return ret
+        return wrapper
+
+    @pdebug
+    def SpecifyDevIdx(dev_idx):
+        global _osc_id
+        _osc_id = int(dev_idx.value)
+        assert _osc_id in _id_vendor_product_map
+
+    @pdebug
+    def DeviceOpen():
+        global _dev, _dev_cfg, _osc_id, _osc_buf_size
+        USB_VENDOR_ID = _id_vendor_product_map[_osc_id][0]
+        USB_PRODUCT_ID = _id_vendor_product_map[_osc_id][1]
+        try:
+            _dev = usb.core.find(idVendor=USB_VENDOR_ID, idProduct=USB_PRODUCT_ID)
+            _dev.set_configuration()
+            _dev_cfg = _dev.get_active_configuration()
+
+            # 0x80: data from device to host, standard request, recipient is dev
+            # 0x06: GET_DESCRIPTOR
+            dev_id = _dev.ctrl_transfer(0x80, 0x06, 0x0301, 0x0000, 0x0032)
+            print('DeviceOpen, dev_ID return:', dev_id)
+        except Exception as e:
+            print(f'Error: {e}')
+            _dev = None
+            _dev_cfg = None
+            dev_id = -1
+            return -1
+        return 0
+    
+    @pdebug
+    def DeviceClose():
+        global _dev, _dev_cfg
+        if _dev is not None:
+            #usb.util.dispose_resources(_dev)
+            _dev.reset()
+            _dev = None
+            _dev_cfg = None
+
+    @pdebug
+    def GetBuffer4Wr(size):
+        size = size.value
+        # return a ubyte array
+        if size < 0:
+            size = 2 * 64 * 1024
+        return (c_ubyte * size)()
+    
+    @pdebug
+    def USBCtrlTrans(cmd, val, reserved):
+        # ctrl_transfer(bmRequestType : uint8_t,
+        #               bRequest      : uint8_t,
+        #               wValue=0      : uint16_t,
+        #               wIndex=0      : uint16_t,
+        #               data_or_wLength = None : unsigned char * or uint16_t,
+        #               timeout = None : unsigned int)
+        # ref. https://github.com/pyusb/pyusb/blob/master/usb/core.py#L1057
+        # ref. https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-control-transfer
+        # ref. file:///usr/share/doc/libusb-1.0-doc/api-1.0/group__libusb__syncio.html#ga2f90957ccc1285475ae96ad2ceb1f58c
+        cmd = cmd.value
+        val = val.value
+        ret = _dev.ctrl_transfer(0x80, cmd, val, 0x0000, 0x0001)
+        return ret[0] if ret else None
+    
+    @pdebug
+    def USBCtrlTransSimple(cmd):
+        # usually cmd is 0x33 or 0x50 ulong
+        cmd = cmd.value
+        ret = _dev.ctrl_transfer(0x80, cmd, 0x0000, 0x0000, 0x0001)
+        return ret[0] if ret else None
+
+    @pdebug
+    def SetInfo(d1, d2, ctrl, ch, chn, size):
+        global _osc_buf_size
+        _osc_buf_size = size
+        return 0
+
+    @pdebug
+    def AiReadBulkData(n_sample_byte, n_event, timeout_ms, buffer, flag, reserved):
+        # read buffer
+        # _dev.read need array.array as buffer
+        # timeout_ms can be None
+        # always blocking read
+        n_sample_byte = n_sample_byte.value
+        n_event = n_event.value
+        timeout_ms = timeout_ms.value
+        assert n_sample_byte <= len(buffer)
+        pos = 0
+        n_one_read_ave = int(n_sample_byte / n_event + 0.5)
+        while pos < n_sample_byte:
+            n_one_read = min(n_one_read_ave, n_sample_byte - pos)
+            print('Trying read n_one_read =', n_one_read)
+            r = _dev.read(0x82, n_one_read, timeout_ms)
+            print(f'AiReadBulkData: read {len(r)} bytes')
+            buffer[pos:pos+len(r)] = r
+            pos += len(r)
+        print('AiReadBulkData: read done', 'pos =', pos)
+        return 0
+    
+    @pdebug
+    def EventCheck(timeout_ms):
+        # return 0x555 if timeout
+        time.sleep(0.1)
+        return 0
+
 
 def sampling_rate_normalization(sr_request, g_CtrlByte0):
     assert sr_request > 0
@@ -93,12 +220,13 @@ def set_volt_range(va_request, vb_request, g_CtrlByte1):
     # find lowest volt range that can cover the request
     va_idx = len(v_list)-1 - np.argmax(v_list[::-1] >= va_request)
     vb_idx = len(v_list)-1 - np.argmax(v_list[::-1] >= vb_request)
-    # set the volt range
+    # set chA volt range
     g_CtrlByte1 &= mask_a_and
     g_CtrlByte1 |= mask_a_or[va_idx]
     USBCtrlTrans(c_ubyte(0x22), c_ushort(mask_a_t[va_idx]), c_ulong(1))
     USBCtrlTrans(c_ubyte(0x24), c_ushort(g_CtrlByte1), c_ulong(1))
     time.sleep(0.1)
+    # set chB volt range
     g_CtrlByte1 &= mask_b_and
     g_CtrlByte1 |= mask_b_or[vb_idx]
     USBCtrlTrans(c_ubyte(0x23), c_ushort(mask_b_t[vb_idx]), c_ulong(1))
@@ -303,7 +431,7 @@ class OSCA02Reader(tssabc.SampleReader):
         USBCtrlTrans(c_ubyte(0xE7),  c_ushort(0x00),  c_ulong(1))
         logger.debug("8. 设置当前触发模式为 无触发")
 
-        if 0:
+        if 1:
             # 8. trigger on rising edge, or turn off green LED
             USBCtrlTrans(c_ubyte(0xC5),  c_ushort(0x00),  c_ulong(1))
             logger.debug("8. 上升沿，或者设置LED绿色灯灭")
@@ -343,7 +471,7 @@ class OSCA02Reader(tssabc.SampleReader):
 
         if 33 != rFillUp:
             logger.error("10. 缓冲区数据没有蓄满(查询结果)")
-            sys.exit(0)
+            raise ValueError("Fail to wait buffer fill up")
         else:
             logger.debug("10. 缓冲区数据已经蓄满(查询结果)")
 
@@ -365,7 +493,8 @@ class OSCA02Reader(tssabc.SampleReader):
         logger.debug(f"X: sampling data available, ret = {ret}, wait time = {t2 - t1:.3f} s, timeout = {timeout_ms:.3f} ms")
 
         # note: g_pBuffer is ubyte array
-        sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(self.chunk_size // 2, 2))
+        sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(self.chunk_size,))
+        sample_d = sample_d.reshape(-1, 2)
         assert (sample_d.shape[0] == self.chunk_size // 2) and (sample_d.shape[1] == 2)
 
         return sample_d[self.n_initial_discard:, :]
@@ -426,7 +555,7 @@ if __name__ == '__main__':
     acq_dev = OSCA02Reader()
     sample_rate = 781000
     periodsize = 64 * 1024
-    volt = 8  # V
+    volt = 5  # V
     acq_dev.init(sample_rate, periodsize, volt, n_initial_discard=100)
     sample_rate = acq_dev.sampling_rate
 
