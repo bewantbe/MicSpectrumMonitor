@@ -90,6 +90,7 @@ Targets for v0.5
 
 Targets for v0.6
 * make default conf have higher priority.
+* remove explict ctypes conversion when calling OSCA02 functions
 * Add device support for USB oscilloscope.
   - allow discontinued samplings.
 * Add waveform sync (trigger) function, and show frequency in it.

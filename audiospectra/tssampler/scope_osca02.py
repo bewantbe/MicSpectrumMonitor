@@ -1,5 +1,8 @@
 # TO test:
-#   python audio_win.py
+#   python scope_osca02.py
+# TO debug usb:
+#   export PYUSB_DEBUG=debug
+#   python scope_osca02.py
 
 import os
 import sys
@@ -49,7 +52,7 @@ if sys.platform == 'win32':
     USBCtrlTrans.restype = c_ubyte
 
     SetInfo = OBJdll.SetInfo
-    SetInfo.argtypes = [c_double, c_double, c_ubyte, c_int, c_uint,  c_uint]
+    SetInfo.argtypes = [c_double, c_double, c_ubyte, c_int, c_uint, c_uint]
 
     USBCtrlTransSimple = OBJdll.USBCtrlTransSimple
     USBCtrlTransSimple.argtypes = [c_ulong]
@@ -66,13 +69,17 @@ if sys.platform == 'win32':
     EventCheck.argtypes = [c_int]
     EventCheck.restype = c_int
 else:  # assume linux
+    # ref. https://github.com/pyusb/pyusb/blob/master/docs/tutorial.rst
     import usb.core
     import usb.util
     global _dev, _dev_cfg
-    global _osc_id         # likely for indexing the oscilloscope
+    global _osc_id            # probably for indexing oscilloscope models
+    global _buffer_byte_size
     _id_vendor_product_map = {
         6: (0x8312, 0x8a02),  # OSCA02
     }
+    global _data_endpoint
+    _data_endpoint = 0x82
 
     # debug decorator
     def pdebug(func):
@@ -124,14 +131,6 @@ else:  # assume linux
             _dev_cfg = None
 
     @pdebug
-    def GetBuffer4Wr(size):
-        size = size.value
-        # return a ubyte array
-        if size < 0:
-            size = 2 * 64 * 1024
-        return (c_ubyte * size)()
-    
-    @pdebug
     def USBCtrlTrans(cmd, val, reserved):
         # ctrl_transfer(bmRequestType : uint8_t,
         #               bRequest      : uint8_t,
@@ -155,13 +154,24 @@ else:  # assume linux
         return ret[0] if ret else None
 
     @pdebug
-    def SetInfo(d1, d2, ctrl, ch, chn, size):
-        global _osc_buf_size
-        _osc_buf_size = size
+    def SetInfo(p1, p2, p3, p4, p5, size):
+        global _buffer_byte_size
+        _buffer_byte_size = size.value
         return 0
 
     @pdebug
-    def AiReadBulkData(n_sample_byte, n_event, timeout_ms, buffer, flag, reserved):
+    def GetBuffer4Wr(index):
+        # return an ubyte array
+        global _buffer_byte_size
+        index = index.value
+        if index == -1:
+            return (c_ubyte * _buffer_byte_size)()
+        else:
+            raise NotImplementedError(f'GetBuffer4Wr: index={index} not supported')
+    
+    @pdebug
+    def AiReadBulkData(n_sample_byte, n_event, timeout_ms, buffer,
+                       flag, reserved):
         # read buffer
         # _dev.read need array.array as buffer
         # timeout_ms can be None
@@ -172,10 +182,11 @@ else:  # assume linux
         assert n_sample_byte <= len(buffer)
         pos = 0
         n_one_read_ave = int(n_sample_byte / n_event + 0.5)
+        # the reading of n_sample_byte is divided into n_event reads
         while pos < n_sample_byte:
             n_one_read = min(n_one_read_ave, n_sample_byte - pos)
             print('Trying read n_one_read =', n_one_read)
-            r = _dev.read(0x82, n_one_read, timeout_ms)
+            r = _dev.read(_data_endpoint, n_one_read, timeout_ms)
             print(f'AiReadBulkData: read {len(r)} bytes')
             buffer[pos:pos+len(r)] = r
             pos += len(r)
@@ -185,7 +196,7 @@ else:  # assume linux
     @pdebug
     def EventCheck(timeout_ms):
         # return 0x555 if timeout
-        time.sleep(0.02)  # TODO: block op
+        #time.sleep(0.02)  # seems _dev.read() will block the program
         return 0
 
 
@@ -322,6 +333,9 @@ class OSCA02Reader(tssabc.SampleReader):
             sample_rate: will be normalized to the closest value in the list
                          [100e6, 12.5e6, 781e3, 49e3, 96e3]
             periodsize: number of frames (samples) for each period.
+                        Internally, the buffer size must be multiple of 8kB,
+                        i.e. the periodsize must be of the form (k integer)
+                           = 4kB * k - _n_frame_discard
         """
         print("--- periodsize = ", periodsize)
         self.chunk_size = periodsize * self.frame_byte_size  # chunk size for output
@@ -338,13 +352,18 @@ class OSCA02Reader(tssabc.SampleReader):
             logger.debug("2. 示波器设备连接 成功!")
         else:
             logger.error("2. 示波器设备连接 失败!")
-            sys.exit(0)
+            raise ConnectionError("Fail to connect to the device")
         
+        ## 4. set buffer size to 128KB, e.g. 64KB per channel
+        SetInfo(c_double(1), c_double(0), c_ubyte(0x11), c_int(0), c_uint(0),
+                c_uint(self.chunk_size_raw))
+        logger.debug("4. 设置使用的缓冲区为128K字节, 如每个通道64K字节")
+
         ## 3. get buffer address
         self.g_pBuffer = GetBuffer4Wr(c_int(-1))
         if 0 == self.g_pBuffer:
             logger.error("GetBuffer Failed!")
-            sys.exit(0)
+            raise MemoryError("Fail to get buffer address")
         else:
             logger.debug("3. 获取数据缓冲区首地址 成功")
 
@@ -362,16 +381,12 @@ class OSCA02Reader(tssabc.SampleReader):
         USBCtrlTrans(c_ubyte(0x17), c_ushort(0x7f), c_ulong(1))
         logger.debug("X: 在步骤3和4之间，初始化硬件触发, 如果触发出问题, 请注释掉这个方法不调用")
 
-        ## 4. set buffer size to 128KB, e.g. 64KB per channel
-        SetInfo(c_double(1),  c_double(0),  c_ubyte(0x11),  c_int(0),   c_uint(0),  c_uint(self.chunk_size_raw) )
-        logger.debug("4. 设置使用的缓冲区为128K字节, 即每个通道64K字节")
-
         ## 5. set oscilloscope sampling rate to 781kHz
         self.sampling_rate, self.g_CtrlByte0 = sampling_rate_normalization(sample_rate, self.g_CtrlByte0)
         Transres = USBCtrlTrans( c_ubyte(0x94),  c_ushort(self.g_CtrlByte0),  c_ulong(1))
         if 0 == Transres:
             logger.error("5. error")
-            sys.exit(0)
+            raise ConnectionError("Fail to set sampling rate")
         else:
             logger.debug("5. 设置示波器采样率781Khz")
         
@@ -485,19 +500,21 @@ class OSCA02Reader(tssabc.SampleReader):
         else:
             logger.debug("10. 缓冲区数据已经蓄满(查询结果)")
 
-        rBulkRes = AiReadBulkData( c_ulong(64 * 1024 * 2) ,  c_uint(1),  c_ulong(2000) , self.g_pBuffer,  c_ubyte(0),  c_uint(0))
+        rBulkRes = AiReadBulkData(c_ulong(self.chunk_size_raw), c_uint(1),
+                                  c_ulong(int(timeout_ms)),
+                                  self.g_pBuffer, c_ubyte(0), c_uint(0))
         if 0 == rBulkRes:
             logger.debug("11. 传输获取采集的数据 成功!")
         else:
             logger.error("11. 传输获取采集的数据 失败!")
-            #sys.exit(0)
+            raise IOError("Fail to read bulk data")
 
         logger.debug("X: waiting data transmition... ")
         ret = EventCheck(c_int(int(timeout_ms)))  # cost about 10~17ms
         t2 = time.time()
         if -1 == ret:
             logger.error("X: wrong calling")
-            sys.exit(0)
+            raise RuntimeError("Fail to run EventCheck()")
         elif 0x555 == ret:
             logger.error("X: timeout")
         logger.debug(f"X: sampling data available, ret = {ret}, wait time = {t2 - t1:.3f} s, timeout = {timeout_ms:.3f} ms")
@@ -517,38 +534,6 @@ class OSCA02Reader(tssabc.SampleReader):
         #sample_f[:, 1] = self.f_volt_chb(sample_d[:, 1])
 
         #return sample_f
-
-    def read_sleep(self, n_frames = None):
-        ## 9. start data acquisition
-        USBCtrlTransSimple(c_ulong(0x33))
-        logger.debug("9. 控制设备开始AD采集")
-
-        logger.debug("X: sleep200ms 等待采集.... ")
-        time.sleep(0.200)
-
-        ## 10. check if data acquisition and storage is complete, if so, return 33
-        rFillUp = USBCtrlTransSimple(c_ulong(0x50))
-        if 33 != rFillUp:
-            logger.error("10. 缓冲区数据没有蓄满(查询结果)")
-            sys.exit(0)
-        else:
-            logger.debug("10. 缓冲区数据已经蓄满(查询结果)")
-
-        ## 11. get samples, where the size is determined by SetInfo()
-        rBulkRes = AiReadBulkData( c_ulong(64 * 1024 * 2) ,  c_uint(1),  c_ulong(2000) , self.g_pBuffer,  c_ubyte(0),  c_uint(0))
-
-        if 0 == rBulkRes:
-            logger.debug("11. 传输获取采集的数据 成功!")
-        else:
-            logger.error("11. 传输获取采集的数据 失败!")
-            sys.exit(0)
-
-        # note: g_pBuffer is ubyte array
-        #sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(64 * 1024, 2)).astype(np.float32)
-        sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(64 * 1024, 2))
-        assert (sample_d.shape[0] == 64 * 1024) and (sample_d.shape[1] == 2)
-
-        return sample_d
 
     def close(self):
         logger.debug("closing device...")
