@@ -185,7 +185,7 @@ else:  # assume linux
     @pdebug
     def EventCheck(timeout_ms):
         # return 0x555 if timeout
-        time.sleep(0.1)
+        time.sleep(0.02)  # TODO: block op
         return 0
 
 
@@ -309,13 +309,24 @@ def user_volt_calib_data(raw_volt_offset_list = None, raw_volt_scale_list = None
 class OSCA02Reader(tssabc.SampleReader):
     
     sampler_id = 'osca02'
+    frame_byte_size = 2
+    _n_frame_discard = 100
 
     def __init__(self):
         self.initilized = False
 
     def init(self, sample_rate, periodsize, volt_range=5, stream_callback=None, 
-             indicate_discontinuous = False, n_initial_discard = 100 , **kwargs):
-        self.chunk_size = periodsize * 2
+             indicate_discontinuous = False, **kwargs):
+        """Initialize the oscilloscope device
+        Parameters:
+            sample_rate: will be normalized to the closest value in the list
+                         [100e6, 12.5e6, 781e3, 49e3, 96e3]
+            periodsize: number of frames (samples) for each period.
+        """
+        print("--- periodsize = ", periodsize)
+        self.chunk_size = periodsize * self.frame_byte_size  # chunk size for output
+        self.chunk_size_raw = self.chunk_size + \
+            self._n_frame_discard * self.frame_byte_size  # chunk size for internal
 
         ## 1. set oscilloscope device model
         SpecifyDevIdx(c_int(6))            # 6: OSCA02
@@ -352,7 +363,7 @@ class OSCA02Reader(tssabc.SampleReader):
         logger.debug("X: 在步骤3和4之间，初始化硬件触发, 如果触发出问题, 请注释掉这个方法不调用")
 
         ## 4. set buffer size to 128KB, e.g. 64KB per channel
-        SetInfo(c_double(1),  c_double(0),  c_ubyte(0x11),  c_int(0),   c_uint(0),  c_uint(self.chunk_size) )
+        SetInfo(c_double(1),  c_double(0),  c_ubyte(0x11),  c_int(0),   c_uint(0),  c_uint(self.chunk_size_raw) )
         logger.debug("4. 设置使用的缓冲区为128K字节, 即每个通道64K字节")
 
         ## 5. set oscilloscope sampling rate to 781kHz
@@ -441,7 +452,6 @@ class OSCA02Reader(tssabc.SampleReader):
         self._discontinuity_signal = 0
 
         self.initilized = True
-        self.n_initial_discard = n_initial_discard
 
         return self
 
@@ -459,7 +469,7 @@ class OSCA02Reader(tssabc.SampleReader):
         logger.debug("9. 控制设备开始AD采集")
         t1 = time.time()
 
-        time_sample = self.chunk_size // 2 / self.sampling_rate
+        time_sample = self.chunk_size_raw // 2 / self.sampling_rate
         timeout_ms = time_sample * 1000 * 10 + 10
         time.sleep(time_sample)
 
@@ -493,11 +503,14 @@ class OSCA02Reader(tssabc.SampleReader):
         logger.debug(f"X: sampling data available, ret = {ret}, wait time = {t2 - t1:.3f} s, timeout = {timeout_ms:.3f} ms")
 
         # note: g_pBuffer is ubyte array
-        sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(self.chunk_size,))
+        sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(self.chunk_size_raw,))
         sample_d = sample_d.reshape(-1, 2)
-        assert (sample_d.shape[0] == self.chunk_size // 2) and (sample_d.shape[1] == 2)
+        print(f'sample_d.shape = {sample_d.shape}')
+        print(f'  Test dim1:', (sample_d.shape[1] == 2))
+        print(f'  Test dim0: sample_d.shape[0] = {sample_d.shape[0]}', 'chunk_size_raw // 2 =', self.chunk_size_raw // 2, ' test', (sample_d.shape[0] == self.chunk_size_raw // 2))
+        assert (sample_d.shape[0] == self.chunk_size_raw // 2) and (sample_d.shape[1] == 2)
 
-        return sample_d[self.n_initial_discard:, :]
+        return sample_d[self._n_frame_discard:, :]
 
         #sample_f = np.zeros_like(sample_d, dtype=np.float32)
         #sample_f[:, 0] = self.f_volt_cha(sample_d[:, 0])
@@ -554,9 +567,9 @@ if __name__ == '__main__':
     
     acq_dev = OSCA02Reader()
     sample_rate = 781000
-    periodsize = 64 * 1024
+    periodsize = 64 * 1024 - acq_dev._n_frame_discard
     volt = 5  # V
-    acq_dev.init(sample_rate, periodsize, volt, n_initial_discard=100)
+    acq_dev.init(sample_rate, periodsize, volt)
     sample_rate = acq_dev.sampling_rate
 
     if 0:
@@ -575,9 +588,9 @@ if __name__ == '__main__':
     
     if 1:
         fig, ax = plt.subplots()
-        t_s = np.arange(acq_dev.n_initial_discard, periodsize) / sample_rate
-        line1, = ax.plot(t_s, np.zeros(periodsize - acq_dev.n_initial_discard), '.-', label='chA')
-        line2, = ax.plot(t_s, np.zeros(periodsize - acq_dev.n_initial_discard), '.-', label='chB')
+        t_s = np.arange(periodsize) / sample_rate
+        line1, = ax.plot(t_s, np.zeros(periodsize), '.-', label='chA')
+        line2, = ax.plot(t_s, np.zeros(periodsize), '.-', label='chB')
         ax.legend()
 
         set_v = []
@@ -585,7 +598,7 @@ if __name__ == '__main__':
         def update(frame):
             d = acq_dev.read()
             v = np.zeros_like(d, dtype=np.float32)
-            v[:, 0] = acq_dev.f_volt_cha(d[:, 0])
+            v[:, 0] = acq_dev.f_volt_cha(d[:, 0])   # TODO: process two channels at once
             v[:, 1] = acq_dev.f_volt_chb(d[:, 1])
             print(f'mean volt: {v[:, 0].mean():.5g},'
                              f'{v[:, 1].mean():.5g}')

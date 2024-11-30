@@ -89,10 +89,12 @@ Targets for v0.5
   - done.
 
 Targets for v0.6
+* make default conf have higher priority.
 * Add device support for USB oscilloscope.
   - allow discontinued samplings.
 * Add waveform sync (trigger) function, and show frequency in it.
 * Fix bug about OSCA02 discontinuous sampling adaptation problem.
+* change var name chunk_size in recorder_gui to fft_chuck_size.
 
 Features under consideration
 ----------------------------

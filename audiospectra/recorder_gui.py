@@ -564,6 +564,9 @@ class AnalyzerParameters:
 
     def load_saved_conf(self):
         """load conf from file to namespace"""
+        # Top: during debug, one may skip the loading of the configuration file
+        #if 1:
+        #    return
         if not os.path.isfile(self.conf_path):
             logging.info(f'No saved configuration file "{self.conf_path}" found.')
             return
@@ -758,7 +761,7 @@ class AnalyzerParameters:
             "volt_range"   : 5,
             "value_format" : 'U8',
             "bit_depth"    : 8,
-            "periodsize"   : 64000,
+            "periodsize"   : 64*1024 - 100,  # see also scope_osca02.py
             "indicate_discontinuous" : True,
             "dic_sample_rate" : {
                 '100MHz': 100e6,

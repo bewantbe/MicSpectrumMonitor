@@ -9,6 +9,16 @@ class AlsaAudio(tssabc.SampleReader):
     sampler_id = 'alsa'
 
     def init(self, sample_rate, stream_callback=None, n_channel=1, periodsize=256, format='S16_LE', device='default', **kwargs):
+        """Initialize the audio device for recording.
+        Parameters:
+            sample_rate: sample rate in Hz.
+            n_channel: number of channels, usually 1 or 2.
+            periodsize: number of frames (samples) for each period.
+                        usually also the output chunk frames for each read.
+            format: 'S16_LE' or 'S24_LE', etc. depends on the device
+            device: the device name, usually 'default', use command 'arecord -L' to list all devices
+        ref.: http://larsimmisch.github.io/pyalsaaudio/terminology.html#term-period
+        """
         self.n_channel  = n_channel
         self.sample_rate = sample_rate * 1.0  # keep float, so easier for math
         self.periodsize  = periodsize
