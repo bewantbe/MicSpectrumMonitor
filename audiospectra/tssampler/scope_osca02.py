@@ -1,5 +1,7 @@
 # TO test:
 #   python scope_osca02.py
+#   python scope_osca02.py repeat
+#   python scope_osca02.py stat
 # TO debug usb:
 #   export PYUSB_DEBUG=debug
 #   python scope_osca02.py
@@ -200,11 +202,12 @@ else:  # assume linux
         return 0
 
 
-def sampling_rate_normalization(sr_request, g_CtrlByte0):
+def sample_rate_normalization(sr_request, g_CtrlByte0):
     assert sr_request > 0
-    sr_list = np.array([100e6]) / np.array([1, 8, 8*16, 8*16*16, 1042])  # [100e6, 12.5e6, 781e3, 49e3, 96e3]
+    #sr_list = np.array([100e6]) / np.array([1, 8, 8*16, 8*16*16, 1042])  # [100e6, 12.5e6, 781e3, 49e3, 96e3]
+    sr_list = [100e6, 12.5e6, 781e3, 49e3, 96e3]
     sr_cmdx = [0x00, 0x08, 0x0c, 0x0e, 0x04]
-    # find the closest sampling rate in log scale
+    # find the closest sample rate in log scale
     sr_diff = np.abs(np.log(sr_list) - np.log(sr_request))
     sr_idx = np.argmin(sr_diff)
     g_CtrlByte0 &= 0xf0
@@ -271,10 +274,6 @@ def read_volt_calib_data():
         volt_scale[j // 2, j % 2] = USBCtrlTrans(0x90, cmd, 1)
     volt_scale = volt_scale * 2 / 255
 
-    print('Internal calibration data:')
-    print('volt offset: \n', zero_volt_offset)
-    print('volt scaling:\n', volt_scale)
-
     return zero_volt_offset, volt_scale
 
 def user_volt_calib_data(raw_volt_offset_list = None, raw_volt_scale_list = None):
@@ -311,17 +310,23 @@ def user_volt_calib_data(raw_volt_offset_list = None, raw_volt_scale_list = None
     #assert abs((v_raw0 - volt_offset) * (v_range * 2 / 255 * volt_scale) - v_ref0) < 1e-10
     #assert abs((v_raw1 - volt_offset) * (v_range * 2 / 255 * volt_scale) - v_ref1) < 1e-10
 
-    print('User calibration:')
-    print('volt_offset:\n', raw_volt_offset_list.reshape(-1, 2))
-    print('volt_scale: \n', raw_volt_scale_list.reshape(-1, 2))
+    raw_volt_offset_list = raw_volt_offset_list.reshape(-1, 2)
+    raw_volt_scale_list  = raw_volt_scale_list.reshape(-1, 2)
 
-    return raw_volt_offset_list.reshape(-1, 2), raw_volt_scale_list.reshape(-1, 2)
+    return raw_volt_offset_list, raw_volt_scale_list
 
 class OSCA02Reader(tssabc.SampleReader):
     
     sampler_id = 'osca02'
     frame_byte_size = 2
     _n_frame_discard = 100
+
+    capability = {
+        'sample_rate': [100e6, 12.5e6, 781e3, 49e3, 96e3],
+        'periodsize': [2**n for n in range(17, 12, -1)],
+        'volt_range': [10, 5, 2.5, 1, 0.5, 0.25, 0.1],
+        'indicate_discontinuous': [True, False],
+    }
 
     def __init__(self):
         self.initilized = False
@@ -337,7 +342,6 @@ class OSCA02Reader(tssabc.SampleReader):
                         i.e. the periodsize must be of the form (k integer)
                            = 4kB * k - _n_frame_discard
         """
-        print("--- periodsize = ", periodsize)
         self.chunk_size = periodsize * self.frame_byte_size  # chunk size for output
         self.chunk_size_raw = self.chunk_size + \
             self._n_frame_discard * self.frame_byte_size  # chunk size for internal
@@ -381,12 +385,12 @@ class OSCA02Reader(tssabc.SampleReader):
         USBCtrlTrans(c_ubyte(0x17), c_ushort(0x7f), c_ulong(1))
         logger.debug("X: 在步骤3和4之间，初始化硬件触发, 如果触发出问题, 请注释掉这个方法不调用")
 
-        ## 5. set oscilloscope sampling rate to 781kHz
-        self.sampling_rate, self.g_CtrlByte0 = sampling_rate_normalization(sample_rate, self.g_CtrlByte0)
+        ## 5. set oscilloscope sample rate to 781kHz
+        self.sample_rate, self.g_CtrlByte0 = sample_rate_normalization(sample_rate, self.g_CtrlByte0)
         Transres = USBCtrlTrans( c_ubyte(0x94),  c_ushort(self.g_CtrlByte0),  c_ulong(1))
         if 0 == Transres:
             logger.error("5. error")
-            raise ConnectionError("Fail to set sampling rate")
+            raise ConnectionError("Fail to set sample rate")
         else:
             logger.debug("5. 设置示波器采样率781Khz")
         
@@ -430,9 +434,9 @@ class OSCA02Reader(tssabc.SampleReader):
             (np.float32(va_bytes) - self.volt_a_offset) * (self.volt_a_max * 2 / 255 * self.volt_a_scale)
         self.f_volt_chb = lambda vb_bytes: \
             (np.float32(vb_bytes) - self.volt_b_offset) * (self.volt_b_max * 2 / 255 * self.volt_b_scale)
-        print(f'volt_a_max: {self.volt_a_max:.2f}, volt_b_max: {self.volt_b_max:.2f}')
-        print(f'volt_a_offset: {self.volt_a_offset:.2f}, volt_b_offset: {self.volt_b_offset:.2f}')
-        print(f'volt_a_scale: {self.volt_a_scale:.4f}, volt_b_scale: {self.volt_b_scale:.4f}')
+        logger.debug(f'volt_a_max: {self.volt_a_max:.2f}, volt_b_max: {self.volt_b_max:.2f}')
+        logger.debug(f'volt_a_offset: {self.volt_a_offset:.2f}, volt_b_offset: {self.volt_b_offset:.2f}')
+        logger.debug(f'volt_a_scale: {self.volt_a_scale:.4f}, volt_b_scale: {self.volt_b_scale:.4f}')
 
         ## 7. set AC/DC channel coupling
         self.g_CtrlByte0 &= 0xef # chA DC coupling
@@ -477,8 +481,8 @@ class OSCA02Reader(tssabc.SampleReader):
         logger.debug("9. 控制设备开始AD采集")
         t1 = time.time()
 
-        time_sample = self.chunk_size_raw // 2 / self.sampling_rate
-        timeout_ms = time_sample * 1000 * 10 + 10
+        time_sample = self.chunk_size_raw // 2 / self.sample_rate
+        timeout_ms = time_sample * 1000 * 10 + 15  # use +10 would cause some timeout
         time.sleep(time_sample)
 
         ## 10. check if data acquisition and storage is complete, if so, return 33
@@ -510,20 +514,17 @@ class OSCA02Reader(tssabc.SampleReader):
             raise RuntimeError("Fail to run EventCheck()")
         elif 0x555 == ret:
             logger.error("X: timeout")
-        logger.debug(f"X: sampling data available, ret = {ret}, wait time = {t2 - t1:.3f} s, timeout = {timeout_ms:.3f} ms")
+        logger.debug(f"X: sample data available, ret = {ret}, wait time = {t2 - t1:.3f} s, timeout = {timeout_ms:.3f} ms")
 
         # note: g_pBuffer is ubyte array
         sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(self.chunk_size_raw,))
         sample_d = sample_d.reshape(-1, 2)
-        print(f'sample_d.shape = {sample_d.shape}')
-        print(f'  Test dim1:', (sample_d.shape[1] == 2))
-        print(f'  Test dim0: sample_d.shape[0] = {sample_d.shape[0]}', 'chunk_size_raw // 2 =', self.chunk_size_raw // 2, ' test', (sample_d.shape[0] == self.chunk_size_raw // 2))
         assert (sample_d.shape[0] == self.chunk_size_raw // 2) and (sample_d.shape[1] == 2)
 
         return sample_d[self._n_frame_discard:, :]
 
     def read(self):
-        """Read sampling data, and return normalized voltage data"""
+        """Read sample data, and return normalized voltage data"""
         d = self.read_raw()
         if isinstance(d, int):  # special signal
             return d
@@ -540,7 +541,7 @@ class OSCA02Reader(tssabc.SampleReader):
         return a
 
     def read_physical(self):
-        """Read sampling data, and return physical voltage data"""
+        """Read sample data, and return physical voltage data"""
         d = self.read_raw()
         if isinstance(d, int):  # special signal
             return d
@@ -555,65 +556,111 @@ class OSCA02Reader(tssabc.SampleReader):
         if self.initilized:
             self.close()
 
-if __name__ == '__main__':
+def demo_read_once(acq_dev):
+    # disable logger for matplotlib
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    import matplotlib.pyplot as plt
+
+    d = acq_dev.read_raw()
+    v = acq_dev.raw_to_physical_value(d)
+
+    # plot the data in chA and chB in the same graph
+    plt.figure()
+    t_s = np.arange(v.shape[0]) / sample_rate
+    plt.plot(t_s, v[:, 0], '.-', label='chA')
+    plt.plot(t_s, v[:, 1], '.-', label='chB')
+    plt.legend()
+    plt.show()
+
+def demo_read_repeat(acq_dev):
     # disable logger for matplotlib
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
     import matplotlib.pyplot as plt
     import matplotlib.animation as animation
-    
+
+    fig, ax = plt.subplots()
+    t_s = np.arange(periodsize) / sample_rate
+    line1, = ax.plot(t_s, np.zeros(periodsize), '.-', label='chA')
+    line2, = ax.plot(t_s, np.zeros(periodsize), '.-', label='chB')
+    ax.legend()
+
+    set_v = []
+
+    def update(frame):
+        d = acq_dev.read_raw()
+        v = acq_dev.raw_to_physical_value(d)
+        print(f'mean volt: {v[:, 0].mean():.5g},'
+                            f'{v[:, 1].mean():.5g}')
+        v_m_a = d[:, 0].astype(np.float32).mean()
+        v_m_b = d[:, 1].astype(np.float32).mean()
+        if frame > 5:
+            set_v.append([v_m_a, v_m_b])
+        print(f'mean byte: {v_m_a:.5g},'
+                            f'{v_m_b:.5g}')
+        line1.set_ydata(v[:, 0])
+        line2.set_ydata(v[:, 1])
+        ax.relim()
+        ax.autoscale_view()
+        fig.canvas.draw()
+        return line1, line2
+
+    ani = animation.FuncAnimation(fig, update, frames=2**30, blit=True)  # run infinitely
+    #ani = animation.FuncAnimation(fig, update, frames=10, blit=True, repeat=False)  # run 10 frames
+    plt.show()
+
+    v_raw_mean = np.array(set_v).mean(axis=0)
+    print(f'v_raw:  {v_raw_mean[0]:.2f}  {v_raw_mean[1]:.2f}')
+    v_cal_mean = [acq_dev.f_volt_cha(v_raw_mean[0]), acq_dev.f_volt_chb(v_raw_mean[1])]
+    print(f'v_raw_cal:  {v_cal_mean[0]:.3f}  {v_cal_mean[1]:.3f}')
+
+def demo_read_stat(acq_dev):
+    n_stat = {781e3:10, 12.5e6:50, 100e6:50,
+              49e3:1, 96e3:1}\
+        [acq_dev.sample_rate]
+    cnt_stat = 0
+    d_queue = []
+    v_queue = []
+    t0 = time.time()
+    while True:
+        d = acq_dev.read_raw()
+        v = acq_dev.raw_to_physical_value(d)
+        d_queue.append(d)
+        v_queue.append(v)
+        if len(d_queue) >= n_stat:
+            # do one stat
+            t1 = time.time()
+            d_set = np.vstack(d_queue)
+            v_set = np.vstack(v_queue)
+            mean_raw = d_set.mean(axis=0)
+            mean_val = v_set.mean(axis=0)
+            std_raw = d_set.var(axis=0)
+            std_val = v_set.var(axis=0)
+            coverage = (n_stat * acq_dev.chunk_size_raw // 2) / (sample_rate * (t1 - t0))
+            print(f'-------- Stat #{cnt_stat} --------')
+            print(f'Mean raw: {mean_raw[0]:.5g}, {mean_raw[1]:.5g}')
+            print(f'Mean val: {mean_val[0]:.5g}, {mean_val[1]:.5g}')
+            print(f'Std raw: {std_raw[0]:.5g}, {std_raw[1]:.5g}')
+            print(f'Std val: {std_val[0]:.5g}, {std_val[1]:.5g}')
+            print(f'Time: {t1 - t0:.3f} s, Coverage: {coverage:.3g}')
+            cnt_stat += 1
+            d_queue = []
+            v_queue = []
+            t0 = time.time()
+
+if __name__ == '__main__':
     acq_dev = OSCA02Reader()
-    sample_rate = 781000
+    #sample_rate = 781000
+    sample_rate = acq_dev.capability['sample_rate'][4]
     periodsize = 64 * 1024 - acq_dev._n_frame_discard
     volt = 5  # V
     acq_dev.init(sample_rate, periodsize, volt)
-    sample_rate = acq_dev.sampling_rate
+    sample_rate = acq_dev.sample_rate
 
-    if 0:
-        d = acq_dev.read_raw()
-        v = acq_dev.raw_to_physical_value(d)
-
-        # plot the data in chA and chB in the same graph
-        plt.figure()
-        t_s = np.arange(v.shape[0]) / sample_rate
-        plt.plot(t_s, v[:, 0], '.-', label='chA')
-        plt.plot(t_s, v[:, 1], '.-', label='chB')
-        plt.legend()
-        plt.show()
-    
-    if 1:
-        fig, ax = plt.subplots()
-        t_s = np.arange(periodsize) / sample_rate
-        line1, = ax.plot(t_s, np.zeros(periodsize), '.-', label='chA')
-        line2, = ax.plot(t_s, np.zeros(periodsize), '.-', label='chB')
-        ax.legend()
-
-        set_v = []
-
-        def update(frame):
-            d = acq_dev.read_raw()
-            v = acq_dev.raw_to_physical_value(d)
-            print(f'mean volt: {v[:, 0].mean():.5g},'
-                             f'{v[:, 1].mean():.5g}')
-            v_m_a = d[:, 0].astype(np.float32).mean()
-            v_m_b = d[:, 1].astype(np.float32).mean()
-            if frame > 5:
-                set_v.append([v_m_a, v_m_b])
-            print(f'mean byte: {v_m_a:.5g},'
-                             f'{v_m_b:.5g}')
-            line1.set_ydata(v[:, 0])
-            line2.set_ydata(v[:, 1])
-            ax.relim()
-            ax.autoscale_view()
-            fig.canvas.draw()
-            return line1, line2
-
-        ani = animation.FuncAnimation(fig, update, frames=2**30, blit=True)  # run infinitely
-        #ani = animation.FuncAnimation(fig, update, frames=10, blit=True, repeat=False)  # run 10 frames
-        plt.show()
-
-        v_raw_mean = np.array(set_v).mean(axis=0)
-        print(f'v_raw:  {v_raw_mean[0]:.2f}  {v_raw_mean[1]:.2f}')
-        v_cal_mean = [acq_dev.f_volt_cha(v_raw_mean[0]), acq_dev.f_volt_chb(v_raw_mean[1])]
-        print(f'v_raw_cal:  {v_cal_mean[0]:.3f}  {v_cal_mean[1]:.3f}')
+    if (len(sys.argv) == 1) or (sys.argv[1] == 'once'):
+        demo_read_once(acq_dev)
+    elif sys.argv[1] == 'repeat':
+        demo_read_repeat(acq_dev)
+    elif sys.argv[1] == 'stat':
+        demo_read_stat(acq_dev)
 
     acq_dev.close()

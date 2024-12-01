@@ -91,11 +91,18 @@ Targets for v0.5
 Targets for v0.6
 * Add device support for USB oscilloscope.
   - allow discontinued samplings - done
+  - Fix bug about OSCA02 discontinuous sampling adaptation problem. - done
+  - Add a mode to show basic statistics to scope_osca02.py. done
+  - Remove debug prints.
+  - directly list capabilities in the class.
+  - Q to loto: how to control peripheral device attached to the USB oscilloscope?
+  - Q to loto: is it possible to pick buffer size other than 128kB?
   - remove explict ctypes conversion when calling OSCA02 functions
+  - Support continues sampling mode.  -- need tech support.
+* get available settings from tssampler, instead from AnalyserParameters.
+* change var name chunk_size in recorder_gui to fft_chuck_size.
 * make default conf have higher priority.
 * Add waveform sync (trigger) function, and show frequency in it.
-* Fix bug about OSCA02 discontinuous sampling adaptation problem.
-* change var name chunk_size in recorder_gui to fft_chuck_size.
 
 Features under consideration
 ----------------------------
