@@ -54,7 +54,7 @@ class MicReader(tssabc.SampleReader):
 
         self.pya = pyaudio.PyAudio()
         self.sample_rate = sample_rate
-        self.chunk_size = period_size   # TODO: are they the same
+        self.period_size = period_size   # TODO: are they the same
         self.dtype = sample_format      # TODO: not really used yet
         self.n_channel = n_channel
         if device == 'default':
@@ -65,7 +65,7 @@ class MicReader(tssabc.SampleReader):
             format = pyaudio.paInt16,
             input = True,
             input_device_index = device,
-            frames_per_buffer = self.chunk_size,
+            frames_per_buffer = self.period_size,
             stream_callback = stream_callback
         )
         self.stream.start_stream()
@@ -75,7 +75,7 @@ class MicReader(tssabc.SampleReader):
     def read(self, n_frames = None):
         # return formatted data: (n_frames, n_channel)
         if n_frames == None:
-            n_frames = self.chunk_size
+            n_frames = self.period_size
         data = self.stream.read(n_frames)
         vals = struct.unpack('h' * (len(data) // 2), data)
         # TODO: or try numpy.frombuffer

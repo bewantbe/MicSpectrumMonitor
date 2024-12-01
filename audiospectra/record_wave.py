@@ -66,7 +66,6 @@ class recThread(threading.Thread):
         self.name = name
         self.buf_que = buf_que    # "output" port of recording data
         self.conf = conf
-        self.period_size = conf['period_size']
         self.sampler = get_sampler(conf.pop('sampler_id'))
         self.b_run = False
     

@@ -345,8 +345,9 @@ class OSCA02Reader(tssabc.SampleReader):
                          i.e. the period_size must be of the form (k integer)
                            = 4kB * k - _n_frame_discard
         """
-        self.chunk_size = period_size * self.frame_byte_size  # chunk size for output
-        self.chunk_size_raw = self.chunk_size + \
+        self.period_size_raw = period_size + self._n_frame_discard
+        self.period_bytes = period_size * self.frame_byte_size  # chunk size for output
+        self.period_bytes_raw = self.period_bytes + \
             self._n_frame_discard * self.frame_byte_size  # chunk size for internal
 
         ## 1. set oscilloscope device model
@@ -363,7 +364,7 @@ class OSCA02Reader(tssabc.SampleReader):
         
         ## 4. set buffer size to 128KB, e.g. 64KB per channel
         SetInfo(c_double(1), c_double(0), c_ubyte(0x11), c_int(0), c_uint(0),
-                c_uint(self.chunk_size_raw))
+                c_uint(self.period_bytes_raw))
         logger.debug("4. 设置使用的缓冲区为128K字节, 如每个通道64K字节")
 
         ## 3. get buffer address
@@ -484,7 +485,7 @@ class OSCA02Reader(tssabc.SampleReader):
         logger.debug("9. 控制设备开始AD采集")
         t1 = time.time()
 
-        time_sample = self.chunk_size_raw // 2 / self.sample_rate
+        time_sample = self.period_size_raw / self.sample_rate
         timeout_ms = time_sample * 1000 * 10 + 15  # use +10 would cause some timeout
         time.sleep(time_sample)
 
@@ -500,7 +501,7 @@ class OSCA02Reader(tssabc.SampleReader):
         else:
             logger.debug("10. 缓冲区数据已经蓄满(查询结果)")
 
-        rBulkRes = AiReadBulkData(c_ulong(self.chunk_size_raw), c_uint(1),
+        rBulkRes = AiReadBulkData(c_ulong(self.period_bytes_raw), c_uint(1),
                                   c_ulong(int(timeout_ms)),
                                   self.g_pBuffer, c_ubyte(0), c_uint(0))
         if 0 == rBulkRes:
@@ -520,9 +521,9 @@ class OSCA02Reader(tssabc.SampleReader):
         logger.debug(f"X: sample data available, ret = {ret}, wait time = {t2 - t1:.3f} s, timeout = {timeout_ms:.3f} ms")
 
         # note: g_pBuffer is ubyte array
-        sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(self.chunk_size_raw,))
+        sample_d = np.ctypeslib.as_array(self.g_pBuffer, shape=(self.period_bytes_raw,))
         sample_d = sample_d.reshape(-1, 2)
-        assert (sample_d.shape[0] == self.chunk_size_raw // 2) and (sample_d.shape[1] == 2)
+        assert (sample_d.shape[0] == self.period_size_raw) and (sample_d.shape[1] == 2)
 
         return sample_d[self._n_frame_discard:, :]
 

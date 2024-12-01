@@ -587,6 +587,27 @@ class AnalyzerParameterManager:
             conf_loaded['channel_selected'] = list(range(conf_loaded['n_channel']))
             conf_loaded['_adc_conf_keys'] = list(conf_default.keys()) + ['sampler_id']
 
+    def set_fft_len(self, fft_len):
+        p = self.ana_param
+        ratio = p.size_hop / p.size_chunk
+        p.size_chunk = fft_len
+        min_t = 1.0 / 30  # 30 FPS at most
+        min_sp = int(2 ** np.ceil(np.log2(min_t * p.sample_rate)))
+        p.period_size = max(fft_len // 2, min_sp)
+        p.period_size = self.sanitize_param(p.period_size, 'period_size')
+        p.size_hop = int(np.round(fft_len * ratio))
+
+    def sanitize_param(self, val, key):
+        s_id = self.ana_param.sampler_id
+        capk = self.ts_sampler_dict[s_id]['capability'][key]
+        if (... in capk) or (val in capk):
+            return val
+        # find the closest value (higher or equal), if not possible, return the closest value.
+        capk = sorted(capk)
+        idx = np.searchsorted(capk, val)
+        val_cap = capk[min(idx, len(capk)-1)]
+        return val_cap
+
     default_ana_view_options = {
         #"channel_selected" : ...,       # auto
         "data_queue_max_size" : 1000,
@@ -720,14 +741,6 @@ class AnalyzerParameters:
         for k in self._ana_conf_keys:
             ana_conf[k] = getattr(self, k)
         return ana_conf
-
-    def set_fft_len(self, fft_len):
-        ratio = self.size_hop / self.size_chunk
-        self.size_chunk = fft_len
-        min_t = 1.0 / 30  # 30 FPS at most
-        min_sp = int(2 ** np.ceil(np.log2(min_t * self.sample_rate)))
-        self.periodsize = max(fft_len // 2, min_sp)
-        self.size_hop = int(np.round(fft_len * ratio))
 
     def render_time_cost_estimation(self):
         """time cost coefficient for each frame"""
@@ -1313,7 +1326,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def on_combobox_fftlen_activated(self, index):
         l = int(self.ui_dock4.comboBox_fftlen.itemText(index))
         logging.info(f'combobox fftlen: {l}')
-        self.ana_param.set_fft_len(l)
+        self.ana_param_manager.set_fft_len(l)
         # full restart. TODO: allow partial restart
         self.stop_data_pipeline()
         PopOldEventsAndExecute(

@@ -31,7 +31,7 @@ class AD7606CReader(tssabc.SampleReader):
 
     def init(self, sample_rate, period_size,
              stream_callback=None, volt_range=[-2.5, 2.5], ends='single', **kwargs):
-        self.chunk_size = period_size           # TODO: are they the same
+        self.period_size = period_size           # TODO: are they the same
         self.adc = M3F20xmADC(reset = True)
         self.initilized = True
         self.adc.set_input_range(volt_range, ends)
@@ -39,18 +39,17 @@ class AD7606CReader(tssabc.SampleReader):
         self.adc.set_sampling_rate(sample_rate)
         self.n_channel = self.adc.n_channel
         self.sample_rate = 1.0 / self.adc.get_sampling_interval()
-        self.n_frames = self.chunk_size
         self.adc.show_essential_info()
-        self.adc.start(self.n_frames)
+        self.adc.start(self.period_size)
         return self
     
     def read(self):
         """
-        Always return a 2D array, with shape (n_frames, n_channel),
+        Always return a 2D array, with shape (period_size, n_channel),
         and the values are always within [-1, 1).
         """
         n_frames_left = self.adc.get_fifo_frames_left()
-        t_wait = (2 * self.n_frames - n_frames_left) / self.sample_rate
+        t_wait = (2 * self.period_size - n_frames_left) / self.sample_rate
         # TODO: sometimes, the resolution of time.sleep is not enough,
         #       we better set lower bound for t_wait
         if t_wait > 0:
