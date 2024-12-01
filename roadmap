@@ -89,10 +89,10 @@ Targets for v0.5
   - done.
 
 Targets for v0.6
-* make default conf have higher priority.
-* remove explict ctypes conversion when calling OSCA02 functions
 * Add device support for USB oscilloscope.
-  - allow discontinued samplings.
+  - allow discontinued samplings - done
+  - remove explict ctypes conversion when calling OSCA02 functions
+* make default conf have higher priority.
 * Add waveform sync (trigger) function, and show frequency in it.
 * Fix bug about OSCA02 discontinuous sampling adaptation problem.
 * change var name chunk_size in recorder_gui to fft_chuck_size.
@@ -100,7 +100,7 @@ Targets for v0.6
 Features under consideration
 ----------------------------
 
-Target for v0.6 or later
+Target for v0.7 or later
 
 * use cascade queues to better buffer the data, e.g.
   sampler -> dispatcher -> wavwriter

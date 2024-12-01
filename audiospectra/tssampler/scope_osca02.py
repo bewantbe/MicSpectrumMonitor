@@ -254,7 +254,7 @@ def read_volt_calib_data():
              0x12, 0x13,  # 0.5
              0x10, 0x11,  # 0.25
              0xA0, 0xA1]  # 0.1
-    zero_volt_offset = np.zeros((7, 2), dtype=np.float64)
+    zero_volt_offset = np.zeros((7, 2), dtype=np.float32)
     for j, cmd in enumerate(zvcmd):
         zero_volt_offset[j // 2, j % 2] = USBCtrlTrans(0x90, cmd, 1)
 
@@ -266,7 +266,7 @@ def read_volt_calib_data():
              0x09, 0x0C,  # 0.5
              0x0A, 0x0D,  # 0.25
              0x2A, 0x2D]  # 0.1
-    volt_scale = np.zeros((7, 2), dtype=np.float64)
+    volt_scale = np.zeros((7, 2), dtype=np.float32)
     for j, cmd in enumerate(vscmd):
         volt_scale[j // 2, j % 2] = USBCtrlTrans(0x90, cmd, 1)
     volt_scale = volt_scale * 2 / 255
@@ -426,17 +426,10 @@ class OSCA02Reader(tssabc.SampleReader):
         self.volt_b_offset = self.volt_offsets[self.volt_ib, 1]
         self.volt_a_scale = self.volt_scale[self.volt_ia, 0]
         self.volt_b_scale = self.volt_scale[self.volt_ib, 1]
-        if 1:
-            self.f_volt_cha = lambda va_bytes: \
-                (np.float64(va_bytes) - self.volt_a_offset) * (self.volt_a_max * 2 / 255 * self.volt_a_scale)
-            self.f_volt_chb = lambda vb_bytes: \
-                (np.float64(vb_bytes) - self.volt_b_offset) * (self.volt_b_max * 2 / 255 * self.volt_b_scale)
-        else:
-            self.f_volt_cha = lambda va_bytes: \
-                (np.float64(va_bytes) - self.volt_a_offset) * (2 * self.volt_a_max / 255)
-            self.f_volt_chb = lambda vb_bytes: \
-                (np.float64(vb_bytes) - self.volt_b_offset) * (2 * self.volt_b_max / 255)
-
+        self.f_volt_cha = lambda va_bytes: \
+            (np.float32(va_bytes) - self.volt_a_offset) * (self.volt_a_max * 2 / 255 * self.volt_a_scale)
+        self.f_volt_chb = lambda vb_bytes: \
+            (np.float32(vb_bytes) - self.volt_b_offset) * (self.volt_b_max * 2 / 255 * self.volt_b_scale)
         print(f'volt_a_max: {self.volt_a_max:.2f}, volt_b_max: {self.volt_b_max:.2f}')
         print(f'volt_a_offset: {self.volt_a_offset:.2f}, volt_b_offset: {self.volt_b_offset:.2f}')
         print(f'volt_a_scale: {self.volt_a_scale:.4f}, volt_b_scale: {self.volt_b_scale:.4f}')
@@ -470,7 +463,7 @@ class OSCA02Reader(tssabc.SampleReader):
 
         return self
 
-    def read(self, n_frames = None):
+    def read_raw(self):
         
         # send discontinuity signal if any
         if self.indicate_discontinuous:
@@ -529,11 +522,29 @@ class OSCA02Reader(tssabc.SampleReader):
 
         return sample_d[self._n_frame_discard:, :]
 
-        #sample_f = np.zeros_like(sample_d, dtype=np.float32)
-        #sample_f[:, 0] = self.f_volt_cha(sample_d[:, 0])
-        #sample_f[:, 1] = self.f_volt_chb(sample_d[:, 1])
+    def read(self):
+        """Read sampling data, and return normalized voltage data"""
+        d = self.read_raw()
+        if isinstance(d, int):  # special signal
+            return d
+        a = np.array(d, dtype=np.float32)
+        a[:, 0] = (a[:,0] - self.volt_a_offset) / 128.0
+        a[:, 1] = (a[:,1] - self.volt_b_offset) / 128.0
+        return a
 
-        #return sample_f
+    def raw_to_physical_value(self, d):
+        """Convert the raw data to physical value"""
+        a = np.array(d, dtype=np.float32)
+        a[:, 0] = (a[:, 0] - self.volt_a_offset) * (self.volt_a_max * 2 / 255 * self.volt_a_scale)
+        a[:, 1] = (a[:, 1] - self.volt_b_offset) * (self.volt_b_max * 2 / 255 * self.volt_b_scale)
+        return a
+
+    def read_physical(self):
+        """Read sampling data, and return physical voltage data"""
+        d = self.read_raw()
+        if isinstance(d, int):  # special signal
+            return d
+        return self.raw_to_physical_value(d)
 
     def close(self):
         logger.debug("closing device...")
@@ -558,10 +569,8 @@ if __name__ == '__main__':
     sample_rate = acq_dev.sampling_rate
 
     if 0:
-        d = acq_dev.read()
-        v = np.zeros_like(d, dtype=np.float32)
-        v[:, 0] = acq_dev.f_volt_cha(d[:, 0])
-        v[:, 1] = acq_dev.f_volt_chb(d[:, 1])
+        d = acq_dev.read_raw()
+        v = acq_dev.raw_to_physical_value(d)
 
         # plot the data in chA and chB in the same graph
         plt.figure()
@@ -581,10 +590,8 @@ if __name__ == '__main__':
         set_v = []
 
         def update(frame):
-            d = acq_dev.read()
-            v = np.zeros_like(d, dtype=np.float32)
-            v[:, 0] = acq_dev.f_volt_cha(d[:, 0])   # TODO: process two channels at once
-            v[:, 1] = acq_dev.f_volt_chb(d[:, 1])
+            d = acq_dev.read_raw()
+            v = acq_dev.raw_to_physical_value(d)
             print(f'mean volt: {v[:, 0].mean():.5g},'
                              f'{v[:, 1].mean():.5g}')
             v_m_a = d[:, 0].astype(np.float32).mean()
