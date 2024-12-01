@@ -50,10 +50,12 @@ class ThreadSampler(ABC, threading.Thread):
 class SampleReader(ABC):
 
     sampler_id = None
+    device_name = None
 
     @abstractmethod
     def init(self, sample_rate, chunk_size, stream_callback=None, **kwargs):
         """Initialize the reader."""
+        self.capability = {}
         return self
 
     @abstractmethod
@@ -88,3 +90,38 @@ def get_sampler(sampler_id):
         if cls:
             return cls.init(**conf)
         raise ValueError('sampler not available: %r' % sampler_id)
+
+def get_available_samplers():
+    return list(sampler_registry.keys())
+
+def get_all_device_capablity(test):
+    # collect basic info
+    ts_sampler_dict = {}
+    for ts_id, cls_tss in sampler_registry.items():
+        ts_sampler_dict[ts_id] = {
+            'device_name': cls_tss.device_name,
+            'capability': None,
+            'default_conf': None
+        }
+        if not test:
+            continue
+        # test each device
+        try:
+            tss = cls_tss()
+            cap = tss.capability
+            conf = {k:v[0] for k, v in cap.items()}
+            print(conf)
+            tss.init(**conf)
+        except Exception as e:
+            logger.info(f'Failed to initialize device "{ts_id}".')
+            logger.info(e)
+        else:
+            ts_sampler_dict[ts_id]['capability'] = tss.capability
+            logger.info(f'Initialized device "{ts_id}".')
+            ts_sampler_dict[ts_id]['default_conf'] = \
+                {k:v[0] for k, v in tss.capability.items()}
+
+    if test:
+        ts_sampler_dict = {k: v for k, v in ts_sampler_dict.items() if v['capability']}
+
+    return ts_sampler_dict

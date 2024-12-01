@@ -322,27 +322,30 @@ class OSCA02Reader(tssabc.SampleReader):
     _n_frame_discard = 100
 
     capability = {
+        'sample_format': ['uint8'],
         'sample_rate': [100e6, 12.5e6, 781e3, 49e3, 96e3],
-        'periodsize': [2**n for n in range(17, 12, -1)],
-        'volt_range': [10, 5, 2.5, 1, 0.5, 0.25, 0.1],
+        'n_channel': [2],
+        'period_size': [2**n - 100 for n in range(16, 12, -1)],
+        'volt_range': [(-10, 10), (-5,5), (-2.5,2.5), (-1,1), (-0.5,0.5), (-0.25,0.25), (-0.1,0.1)],
         'indicate_discontinuous': [True, False],
+        'n_frame_discard': [_n_frame_discard, ...],
     }
 
     def __init__(self):
         self.initilized = False
 
-    def init(self, sample_rate, periodsize, volt_range=5, stream_callback=None, 
+    def init(self, sample_rate, period_size, volt_range=5, stream_callback=None, 
              indicate_discontinuous = False, **kwargs):
         """Initialize the oscilloscope device
         Parameters:
             sample_rate: will be normalized to the closest value in the list
                          [100e6, 12.5e6, 781e3, 49e3, 96e3]
-            periodsize: number of frames (samples) for each period.
-                        Internally, the buffer size must be multiple of 8kB,
-                        i.e. the periodsize must be of the form (k integer)
+            period_size: number of frames (samples) for each period.
+                         Internally, the buffer size must be multiple of 8kB,
+                         i.e. the period_size must be of the form (k integer)
                            = 4kB * k - _n_frame_discard
         """
-        self.chunk_size = periodsize * self.frame_byte_size  # chunk size for output
+        self.chunk_size = period_size * self.frame_byte_size  # chunk size for output
         self.chunk_size_raw = self.chunk_size + \
             self._n_frame_discard * self.frame_byte_size  # chunk size for internal
 
@@ -579,9 +582,9 @@ def demo_read_repeat(acq_dev):
     import matplotlib.animation as animation
 
     fig, ax = plt.subplots()
-    t_s = np.arange(periodsize) / sample_rate
-    line1, = ax.plot(t_s, np.zeros(periodsize), '.-', label='chA')
-    line2, = ax.plot(t_s, np.zeros(periodsize), '.-', label='chB')
+    t_s = np.arange(period_size) / sample_rate
+    line1, = ax.plot(t_s, np.zeros(period_size), '.-', label='chA')
+    line2, = ax.plot(t_s, np.zeros(period_size), '.-', label='chB')
     ax.legend()
 
     set_v = []
@@ -651,9 +654,9 @@ if __name__ == '__main__':
     acq_dev = OSCA02Reader()
     #sample_rate = 781000
     sample_rate = acq_dev.capability['sample_rate'][4]
-    periodsize = 64 * 1024 - acq_dev._n_frame_discard
+    period_size = 64 * 1024 - acq_dev._n_frame_discard
     volt = 5  # V
-    acq_dev.init(sample_rate, periodsize, volt)
+    acq_dev.init(sample_rate, period_size, volt)
     sample_rate = acq_dev.sample_rate
 
     if (len(sys.argv) == 1) or (sys.argv[1] == 'once'):

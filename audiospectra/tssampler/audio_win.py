@@ -10,18 +10,52 @@ from . import tssabc
 class MicReader(tssabc.SampleReader):
     
     sampler_id = 'pyaudio'
+    device_name = 'System mic'
 
     def __init__(self):
         self.initilized = False
 
-    def init(self, device, sample_rate, n_channel, value_format, periodsize, stream_callback=None):
-        # value_format: S16_LE, int16
+        # get supported sample rates
+        supported_rates = []
+        pya = pyaudio.PyAudio()
+        device_info = pya.get_default_input_device_info()
+        device_index = device_info['index']
+        common_rates = [8000, 11025, 16000, 22050, 32000, 44100, 48000, 96000, 192000]
+        for rate in common_rates:
+            try:
+                if pya.is_format_supported(
+                        rate,
+                        input_device=device_index,
+                        input_channels=2,
+                        input_format=pyaudio.paInt16):
+                    supported_rates.append(rate)
+            except ValueError:
+                pass
+        pya.terminate()
+
+        # get capabilities
+        self.capability = {
+            'sample_format': ['int16'],  # S16_LE
+            'sample_rate': supported_rates,
+            'n_channel': [2, 1],
+            'period_size': [1024, ...],
+            'device': ['default', ...]
+        }
+
+    def init(self, device, sample_rate, n_channel, sample_format, period_size, stream_callback=None):
+        # sample_format: S16_LE, int16
         # device: device index
         # Ref. https://people.csail.mit.edu/hubert/pyaudio/docs/
+
+        assert sample_rate in self.capability['sample_rate'], \
+            f"Sample rate {sample_rate} is not supported. Supported rates: {self.capability['sample_rate']}"
+        assert n_channel in self.capability['n_channel'], \
+            f"Number of channels {n_channel} is not supported. Supported channels: {self.capability['n_channel']}"
+
         self.pya = pyaudio.PyAudio()
         self.sample_rate = sample_rate
-        self.chunk_size = periodsize   # TODO: are they the same
-        self.dtype = value_format      # TODO: not really used yet
+        self.chunk_size = period_size   # TODO: are they the same
+        self.dtype = sample_format      # TODO: not really used yet
         self.n_channel = n_channel
         if device == 'default':
             device = None

@@ -16,13 +16,22 @@ from M3F20xm import M3F20xmADC, dbg_print
 
 class AD7606CReader(tssabc.SampleReader):
     sampler_id = 'ad7606c'
+    device_name = 'AD7606C'
+
+    capability = {
+        'sample_format': ['int16'],
+        'sample_rate': list(1e6/np.array([2, 4, 8, 20])),
+        'n_channel': [8],
+        'period_size': [4096, 256, 512, 1024, 2048, 8192, 16384, 32768, ...],
+        'volt_range': [(0, 5), (0,10), (0,12.5)]
+    }
 
     def __init__(self):
         self.initilized = False
 
-    def init(self, sample_rate, periodsize,
-             stream_callback=None, volt_range=[-2.5, 2.5], ends='single'):
-        self.chunk_size = periodsize           # TODO: are they the same
+    def init(self, sample_rate, period_size,
+             stream_callback=None, volt_range=[-2.5, 2.5], ends='single', **kwargs):
+        self.chunk_size = period_size           # TODO: are they the same
         self.adc = M3F20xmADC(reset = True)
         self.initilized = True
         self.adc.set_input_range(volt_range, ends)

@@ -7,14 +7,26 @@ from . import tssabc
 
 class SineSource(tssabc.SampleReader):
     sampler_id = 'sine'
+    device_name = 'Sine wave'
+    capability = {
+        'sample_format': ['int16'],
+        'sample_rate': [48000, 44100, 8000, ...],
+        'n_channel': [1],
+        'period_size': [2048, 256, 512, 1024, ...],
+        'freq': [440.0, ...]
+    }
 
-    def init(self, sample_rate, chunk_size, freq):
+    def init(self, sample_rate, period_size, freq, **kwargs):
         self.sample_rate = sample_rate
+        self.period_size = period_size
         self.w = 2 * np.pi * freq
         self.t_last = time.time()
         self.phase_last = 0
+        return self
 
-    def read(self, n_frames):
+    def read(self, n_frames = None):
+        if n_frames is None:
+            n_frames = self.period_size
         fq = self.w / self.sample_rate
         sample_d = np.sin(self.phase_last + fq * np.arange(n_frames))
         self.t_last += n_frames / self.sample_rate
@@ -24,20 +36,29 @@ class SineSource(tssabc.SampleReader):
         t_wait = self.t_last - time.time()
         if t_wait > 0:
             time.sleep(t_wait)
-        return sample_d.reshape((1, n_frames))
+        return sample_d.reshape((n_frames, 1))
     
     def close(self):
         pass
     
 class WhiteSource(tssabc.SampleReader):
     sampler_id = 'white'
-
-    def init(self, sample_rate, chunk_size, fn_cb = None):
+    device_name = 'White noise'
+    capability = {
+        'sample_format': ['int16'],
+        'sample_rate': [48000, 44100, 8000, ...],
+        'n_channel': [1],
+        'period_size': [2048, 256, 512, 1024, ...],
+    }
+    def init(self, sample_rate, period_size, fn_cb = None, **kwargs):
         self.sample_rate = sample_rate
+        self.period_size = period_size
         self.t_last = time.time()
         return self
     
-    def read(self, n_frames):
+    def read(self, n_frames = None):
+        if n_frames is None:
+            n_frames = self.period_size
         s = np.random.rand(1, n_frames) * 2 - 1
         self.t_last += n_frames / self.sample_rate
         # Simulate the blocking behavior:
@@ -45,7 +66,7 @@ class WhiteSource(tssabc.SampleReader):
         t_wait = self.t_last - time.time()
         if t_wait > 0:
             time.sleep(t_wait)
-        return s.reshape((1, n_frames))
+        return s.reshape((n_frames, 1))
     
     @staticmethod
     def spectrumLevel(wnd, normalize_level):

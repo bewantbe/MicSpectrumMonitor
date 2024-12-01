@@ -13,7 +13,10 @@
 
 import logging
 
-from .tssabc import register_sampler, get_sampler, sampler_registry
+from .tssabc import (                               # for exporting symbols
+    register_sampler, get_sampler, sampler_registry,
+    get_available_samplers, get_all_device_capablity
+)
 
 from .ideal_source import SineSource, WhiteSource
 register_sampler(ideal_source.SineSource)

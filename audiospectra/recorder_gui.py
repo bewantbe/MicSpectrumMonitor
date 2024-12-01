@@ -58,7 +58,7 @@ from .record_wave import (
     analyzerData,
     FPSLimiter
 )
-
+from .tssampler import get_all_device_capablity
 from .control_pannel import Ui_Dock4  # TODO: change "from PyQt6" to "from pyqtgraph.Qt"
 
 DEFAULT_CONF_FILE = '.analyzer.conf'
@@ -551,6 +551,53 @@ def pretty_num_unit(v, n_prec = 4):
     v = v * 1000.0 ** (-scale)
     st = f'%.{n_prec}g%s'%(v, scale_st[scale])
     return st
+
+class AnalyzerParameterManager:
+    def __init__(self, test = True, conf_path = DEFAULT_CONF_FILE):
+        self.ts_sampler_dict = get_all_device_capablity(test = test)
+        self.ana_param = AnalyzerParameters(conf_path = conf_path)
+        self.fill_default_conf()
+
+    def fill_default_conf(self):
+        for ts_sampler_id in self.ts_sampler_dict:
+            conf_default = self.ts_sampler_dict[ts_sampler_id]['default_conf']
+            capability = self.ts_sampler_dict[ts_sampler_id]['capability']
+            if capability is None:
+                continue
+            # correct possible errors in loaded conf
+            if ts_sampler_id not in self.ana_param.devices_conf:
+                self.ana_param.devices_conf[ts_sampler_id] = deepcopy(conf_default)
+                conf_loaded = self.ana_param.devices_conf[ts_sampler_id]
+            else:
+                conf_loaded = self.ana_param.devices_conf[ts_sampler_id]
+                for k, v in conf_default.items():
+                    if k not in conf_loaded:
+                        # fill empty item
+                        conf_loaded[k] = v
+                    else:
+                        # check filled item
+                        if (... not in capability[k]) and \
+                                (conf_loaded[k] not in capability[k]):
+                            conf_loaded[k] = v
+            conf_loaded.update(self.default_ana_view_options)
+            conf_loaded['sampler_id'] = ts_sampler_id
+            conf_loaded['device_name'] = self.ts_sampler_dict[ts_sampler_id]['device_name']
+            conf_loaded['dic_sample_rate'] = {pretty_num_unit(v)+'Hz' : v
+                    for v in capability['sample_rate'] if v is not ...}
+            conf_loaded['channel_selected'] = list(range(conf_loaded['n_channel']))
+            conf_loaded['_adc_conf_keys'] = list(conf_default.keys()) + ['sampler_id']
+
+    default_ana_view_options = {
+        #"channel_selected" : ...,       # auto
+        "data_queue_max_size" : 1000,
+        # for FFT analyzer
+        "size_chunk"   : 8192,
+        "size_hop"     : 8192 // 2,
+        "n_ave"        : 2,
+        "spectrogram_duration" : 1.0,
+        "use_dBA"      : False,
+        #"_adc_conf_keys" : ...          # auto
+    }
 
 class AnalyzerParameters:
     def __init__(self, conf_path = DEFAULT_CONF_FILE):
@@ -1113,7 +1160,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui_dock4 = ui_dock4
 
         # basic parameters holder
-        self.ana_param = AnalyzerParameters()
+        self.ana_param_manager = AnalyzerParameterManager()
+        self.ana_param = self.ana_param_manager.ana_param
         self.audio_saver_manager = AudioSaverManager()
         # core audio pipeline is managed here
         self.audio_pipeline = AudioPipeline()
@@ -1220,7 +1268,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def on_combobox_dev_refresh(self):
         self.ui_dock4.comboBox_dev.clear()
-        self.ui_dock4.comboBox_dev.addItems(self.ana_param.devices_conf_default.keys())
+        self.ui_dock4.comboBox_dev.addItems(self.ana_param_manager.ts_sampler_dict.keys())
         self.ui_dock4.comboBox_dev.addItem('refresh list')
         self.ui_dock4.comboBox_dev.addItem('none')
         self.ui_dock4.comboBox_dev.setCurrentIndex(0)

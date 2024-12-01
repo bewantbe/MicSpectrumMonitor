@@ -66,7 +66,7 @@ class recThread(threading.Thread):
         self.name = name
         self.buf_que = buf_que    # "output" port of recording data
         self.conf = conf
-        self.periodsize = conf['periodsize']
+        self.period_size = conf['period_size']
         self.sampler = get_sampler(conf.pop('sampler_id'))
         self.b_run = False
     
@@ -77,10 +77,10 @@ class recThread(threading.Thread):
         self.b_run = True
 
         overrun_checker = overrunChecker(
-            self.conf['sample_rate'], self.conf['periodsize'])
+            self.conf['sample_rate'], self.conf['period_size'])
         overrun_checker.start()
         while self.b_run:
-            #sample_d = self.sampler.read(self.conf['periodsize'])
+            #sample_d = self.sampler.read(self.conf['period_size'])
             sample_d = self.sampler.read()
             #overrun_checker.updateState(len(sample_d))
             if not self.buf_que.full():
@@ -716,7 +716,7 @@ if __name__ == '__main__':
                 'device'    : 'default',
                 'n_channel': 1,
                 'sample_rate': 48000,
-                'periodsize': 1024,
+                'period_size': 1024,
                 'format'    : 'S16_LE',
             }
         elif pcm_device == 'hw:CARD=U18dB,DEV=0':
@@ -725,14 +725,14 @@ if __name__ == '__main__':
                 'device'    : 'hw:CARD=U18dB,DEV=0',
                 'n_channel': 2,
                 'sample_rate': 48000,
-                'periodsize': 1024,
+                'period_size': 1024,
                 'format'    : 'S24_LE',
             }
         elif pcm_device == 'ad7606c':
             conf = {
                 'sampler_id': 'ad7606c',
                 'sample_rate': 48000,
-                'periodsize': 4800,
+                'period_size': 4800,
             }
         else:
             conf = {
@@ -740,7 +740,7 @@ if __name__ == '__main__':
                 'device'    : 'default',
                 'n_channel': 1,
                 'sample_rate': 48000,
-                'periodsize': 1024,
+                'period_size': 1024,
                 'format'    : 'S16_LE',
             }
         rec_thread = recThread('rec', buf_queue, conf)
