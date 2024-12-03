@@ -16,7 +16,7 @@ class SineSource(tssabc.SampleReader):
         'freq': [440.0, ...]
     }
 
-    def init(self, sample_rate, period_size, freq, **kwargs):
+    def init(self, sample_rate, period_size, freq):
         self.sample_rate = sample_rate
         self.period_size = period_size
         self.w = 2 * np.pi * freq
@@ -50,7 +50,7 @@ class WhiteSource(tssabc.SampleReader):
         'n_channel': [1],
         'period_size': [2048, 256, 512, 1024, ...],
     }
-    def init(self, sample_rate, period_size, fn_cb = None, **kwargs):
+    def init(self, sample_rate, period_size, fn_cb = None):
         self.sample_rate = sample_rate
         self.period_size = period_size
         self.t_last = time.time()

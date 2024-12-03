@@ -584,9 +584,9 @@ class AnalyzerParameterManager:
         self.correct_default_conf()
 
     def correct_default_conf(self):
-        for ts_sampler_id in self.ts_sampler_dict:
-            conf_default = self.ts_sampler_dict[ts_sampler_id]['default_conf']
-            capability = self.ts_sampler_dict[ts_sampler_id]['capability']
+        for ts_sampler_id, sampler_info in self.ts_sampler_dict.items():
+            conf_default = sampler_info['default_conf']
+            capability = sampler_info['capability']
             if capability is None:
                 continue
             # correct possible errors in loaded conf
@@ -607,12 +607,15 @@ class AnalyzerParameterManager:
                             conf_loaded[k] = v
             conf_loaded.update(self.default_ana_view_options)
             conf_loaded['sampler_id'] = ts_sampler_id
-            conf_loaded['device_name'] = self.ts_sampler_dict[ts_sampler_id]['device_name']
+            conf_loaded['device_name'] = sampler_info['device_name']
             conf_loaded['bit_depth'] = sample_format_bit_depth[conf_loaded['sample_format']]
-            conf_loaded['dic_sample_rate'] = {pretty_num_unit(v)+'Hz' : v
+            conf_loaded['dic_sample_rate'] = \
+                {pretty_num_unit(v)+'Hz' : v
                     for v in capability['sample_rate'] if v is not ...}
             conf_loaded['channel_selected'] = list(range(conf_loaded['n_channel']))
-            conf_loaded['_adc_conf_keys'] = list(conf_default.keys()) + ['sampler_id']
+            conf_loaded['_adc_conf_keys'] = ['sampler_id'] + \
+                [k for k in conf_default.keys()
+                    if k in sampler_info['configurable_keys']]
 
     def load_conf_from_file(self):
         """load conf from file to namespace"""

@@ -335,7 +335,7 @@ class OSCA02Reader(tssabc.SampleReader):
         self.initilized = False
 
     def init(self, sample_rate, period_size, volt_range=5, stream_callback=None, 
-             indicate_discontinuous = False, **kwargs):
+             indicate_discontinuous = False):
         """Initialize the oscilloscope device
         Parameters:
             sample_rate: will be normalized to the closest value in the list

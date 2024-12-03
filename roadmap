@@ -110,7 +110,7 @@ Targets for v0.6
 * change var name chunk_size in recorder_gui to fft_chunk_size.
   - done. no need, chunk_size is just fft_len.
 * make AnalyserParameters simple, and move the complex logic to AnalyserParameterManager.
-  -
+  - done.
 * Add waveform sync (trigger) function, and show frequency in it.
 * Allow update device list by using/writing tssampler functions.
   - such as sine, white noise.

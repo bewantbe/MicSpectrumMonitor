@@ -20,7 +20,7 @@ class AlsaAudio(tssabc.SampleReader):
             'period_size': [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, ...],
         }
 
-    def init(self, sample_rate, stream_callback=None, n_channel=1, periodsize=256, sample_format='S16_LE', device='default', **kwargs):
+    def init(self, sample_rate, stream_callback=None, n_channel=1, periodsize=256, sample_format='S16_LE', device='default'):
         """Initialize the audio device for recording.
         Parameters:
             sample_rate: sample rate in Hz.

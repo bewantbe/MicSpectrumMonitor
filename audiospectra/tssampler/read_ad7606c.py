@@ -30,7 +30,7 @@ class AD7606CReader(tssabc.SampleReader):
         self.initilized = False
 
     def init(self, sample_rate, period_size,
-             stream_callback=None, volt_range=[-2.5, 2.5], ends='single', **kwargs):
+             stream_callback=None, volt_range=[-2.5, 2.5], ends='single'):
         self.period_size = period_size           # TODO: are they the same
         self.adc = M3F20xmADC(reset = True)
         self.initilized = True

@@ -5,8 +5,9 @@ all time series sampler classes.
 import logging
 import threading
 from abc import ABC, abstractmethod
+import inspect
 
-logger = logging.getLogger("Sampler")
+logger = logging.getLogger("TSSampler")
 
 sampler_registry = {}
 
@@ -55,15 +56,22 @@ class SampleReader(ABC):
     @abstractmethod
     def init(self, sample_rate, chunk_size, stream_callback=None, **kwargs):
         """Initialize the reader."""
-        self.capability = {}
+        # these are mandatory fields
+        self.capability = {
+            'sample_format': [],
+            'sample_rate': [],
+            'n_channels': [],
+            'period_size': [],
+        }
         return self
 
     @abstractmethod
-    def read(self, n_frames):
+    def read(self, n_frames = None):
         """Read at most n_frames frames of audio/ADC values etc.
         Return decoded data (numpy array-like), with shape (n_r_frames, n_ch).
+        If no n_frames is given, read according to period_size.
         """
-    
+
     def close(self):
         """Close the reader."""
 
@@ -109,17 +117,22 @@ def get_all_device_capablity(test):
         try:
             tss = cls_tss()
             cap = tss.capability
-            conf = {k:v[0] for k, v in cap.items()}
-            print(conf)
+            
+            signature = inspect.signature(tss.init)
+            configurable_keys = [param.name for param in signature.parameters.values()]
+            conf = {k:v[0] for k, v in cap.items() if k in configurable_keys}
+            logger.info(f'Initializing device "{ts_id}" with conf:\n    {conf}')
             tss.init(**conf)
         except Exception as e:
             logger.info(f'Failed to initialize device "{ts_id}".')
             logger.info(e)
         else:
             ts_sampler_dict[ts_id]['capability'] = tss.capability
-            logger.info(f'Initialized device "{ts_id}".')
             ts_sampler_dict[ts_id]['default_conf'] = \
                 {k:v[0] for k, v in tss.capability.items()}
+            ts_sampler_dict[ts_id]['configurable_keys'] = configurable_keys
+            logger.info(f'Initialized device "{ts_id}", now closing it...')
+            tss.close()
 
     if test:
         ts_sampler_dict = {k: v for k, v in ts_sampler_dict.items() if v['capability']}
