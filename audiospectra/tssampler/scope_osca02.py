@@ -322,7 +322,7 @@ class OSCA02Reader(tssabc.SampleReader):
     _n_frame_discard = 100
 
     capability = {
-        'sample_format': ['uint8'],
+        'sample_format': ['U8'],
         'sample_rate': [100e6, 12.5e6, 781e3, 49e3, 96e3],
         'n_channel': [2],
         'period_size': [2**n - 100 for n in range(16, 12, -1)],

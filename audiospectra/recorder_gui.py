@@ -195,6 +195,13 @@ def GetColorMapLut(n_point, cm_name = 'CET-C6'):
     lut = cm.getLookupTable(start = 0.0, stop = c_stop, nPts = n_point)
     return lut
 
+sample_format_bit_depth = {
+    'U8': 8,
+    'S16_LE': 16,
+    'S24_LE': 24,
+    'S24_3LE': 24,
+}
+
 def time_to_HHMMSSm(t):
     hours, remainder = divmod(t, 3600)
     minutes, seconds = divmod(remainder, 60)
@@ -386,7 +393,7 @@ class RMSPlot:
         self.n_ave = analyzer.ave_num
         self.t_duration_set = spectrogram_duration
         t_hop = sz_hop / analyzer.sample_rate
-        self.rms_len = int(self.t_duration_set / t_hop)
+        self.rms_len = max(int(self.t_duration_set / t_hop), 1)
         self.t_duration = self.rms_len * t_hop    # correct the duration
         self.loop_cursor = 0
         self.n_channel = analyzer.n_channel
@@ -566,99 +573,9 @@ class AnalyzerParameterManager:
         #"_adc_conf_keys" : ...          # auto
     }
 
-    devices_conf_default = {
-        "mic": {
-            # for mic / ADC
-            "sampler_id"   : 'mic',
-            "device"       : 'default',
-            "device_name"  : 'System mic',
-            "sample_rate"  : 48000,
-            "n_channel"    : 2,
-            "value_format" : 'S16_LE',
-            "bit_depth"    : 16,      # assume always S16_LE
-            "period_size"   : 1024,    # usually half the chunk size
-            # allowable values
-            "dic_sample_rate" : {    # might be generated
-                '48kHz': 48000,
-                '44.1kHz': 44100,
-                '32kHz': 32000,
-                '16kHz': 16000,
-                '8kHz': 8000,
-            },
-            # pipeline
-            "channel_selected" : [0, 1],
-            "data_queue_max_size" : 1000,
-            # for FFT analyzer
-            "size_chunk"   : 1024,
-            "size_hop"     : 1024 // 2,
-            "n_ave"        : 2,
-            "spectrogram_duration" : 6.0,
-            "use_dBA"      : False,
-            # TODO: calibration_path
-            "_adc_conf_keys" : [
-                'sampler_id', 'device', 'sample_rate', 'n_channel',
-                'value_format', 'periodsize'],
-        },
-        "AD7606C": {
-            "sampler_id"   : 'ad7606c',
-            "device"       : 'default',
-            "device_name"  : 'AD7606C',
-            "sample_rate"  : 500000,
-            "n_channel"    : 8,
-            "volt_range"   : [0, 5],
-            "value_format" : 'S16_LE', # depends on the range setup
-            "bit_depth"    : 16,       # assume always S16_LE
-            "period_size"   : 4096,
-            "dic_sample_rate" : {    # might be generated
-                '48kHz' : 48000,
-                '250kHz': 250000,
-                '500kHz': 500000,
-            },
-            # pipeline
-            "channel_selected" : [0, 1, 2, 3, 4, 5, 6, 7],
-            "data_queue_max_size" : 1000,
-            # for FFT analyzer
-            "size_chunk"   : 8192,
-            "size_hop"     : 8192 // 2,
-            "n_ave"        : 8,
-            "spectrogram_duration" : 1.0,
-            "use_dBA"      : False,
-            "_adc_conf_keys" : [
-                'sampler_id', 'sample_rate', 'periodsize', 'volt_range'],
-        },
-        "OSCA02": {
-            "sampler_id"   : 'osca02',
-            "device"       : 'default',
-            "device_name"  : 'OSCA02',
-            "sample_rate"  : 781000,
-            "n_channel"    : 2,
-            "volt_range"   : 5,
-            "value_format" : 'U8',
-            "bit_depth"    : 8,
-            "period_size"   : 64*1024 - 100,  # see also scope_osca02.py
-            "indicate_discontinuous" : True,
-            "dic_sample_rate" : {
-                '100MHz': 100e6,
-                '12.5MHz': 12.5e6,
-                '781kHz': 781e3,
-                '49kHz': 49e3,
-            },
-            "channel_selected" : [0, 1],
-            "data_queue_max_size" : 1000,
-            "size_chunk"   : int((64*1024)/2),
-            "size_hop"     : int((64*1024)/2),
-            "n_ave"        : 1,
-            "spectrogram_duration" : 1.0,
-            "use_dBA"      : False,
-            "_adc_conf_keys" : [
-                'sampler_id', 'sample_rate', 'periodsize', 'volt_range',
-                'indicate_discontinuous'],
-        }
-    }
-
     def __init__(self, test = True, conf_path = DEFAULT_CONF_FILE):
         self.ts_sampler_dict = get_all_device_capablity(test = test)
-        self.devices_conf = deepcopy(self.devices_conf_default)  #TODO make it empty
+        self.devices_conf = {}
         self.current_device = None
         self.last_device = None
         self.ana_param = AnalyzerParameters()
@@ -674,6 +591,7 @@ class AnalyzerParameterManager:
                 continue
             # correct possible errors in loaded conf
             if ts_sampler_id not in self.devices_conf:
+                # new device
                 self.devices_conf[ts_sampler_id] = deepcopy(conf_default)
                 conf_loaded = self.devices_conf[ts_sampler_id]
             else:
@@ -690,6 +608,7 @@ class AnalyzerParameterManager:
             conf_loaded.update(self.default_ana_view_options)
             conf_loaded['sampler_id'] = ts_sampler_id
             conf_loaded['device_name'] = self.ts_sampler_dict[ts_sampler_id]['device_name']
+            conf_loaded['bit_depth'] = sample_format_bit_depth[conf_loaded['sample_format']]
             conf_loaded['dic_sample_rate'] = {pretty_num_unit(v)+'Hz' : v
                     for v in capability['sample_rate'] if v is not ...}
             conf_loaded['channel_selected'] = list(range(conf_loaded['n_channel']))

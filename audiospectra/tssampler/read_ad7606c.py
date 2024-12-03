@@ -19,7 +19,7 @@ class AD7606CReader(tssabc.SampleReader):
     device_name = 'AD7606C'
 
     capability = {
-        'sample_format': ['int16'],
+        'sample_format': ['U16_LE'],   # maybe 'S16_LE', depends on volt_range
         'sample_rate': list(1e6/np.array([2, 4, 8, 20])),
         'n_channel': [8],
         'period_size': [4096, 256, 512, 1024, 2048, 8192, 16384, 32768, ...],

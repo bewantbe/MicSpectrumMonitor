@@ -35,7 +35,7 @@ class MicReader(tssabc.SampleReader):
 
         # get capabilities
         self.capability = {
-            'sample_format': ['int16'],  # S16_LE
+            'sample_format': ['S16_LE'],
             'sample_rate': supported_rates,
             'n_channel': [2, 1],
             'period_size': [1024, ...],

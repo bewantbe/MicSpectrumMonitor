@@ -9,7 +9,7 @@ class SineSource(tssabc.SampleReader):
     sampler_id = 'sine'
     device_name = 'Sine wave'
     capability = {
-        'sample_format': ['int16'],
+        'sample_format': ['S16_LE'],
         'sample_rate': [48000, 44100, 8000, ...],
         'n_channel': [1],
         'period_size': [2048, 256, 512, 1024, ...],
@@ -45,7 +45,7 @@ class WhiteSource(tssabc.SampleReader):
     sampler_id = 'white'
     device_name = 'White noise'
     capability = {
-        'sample_format': ['int16'],
+        'sample_format': ['S16_LE'],
         'sample_rate': [48000, 44100, 8000, ...],
         'n_channel': [1],
         'period_size': [2048, 256, 512, 1024, ...],
