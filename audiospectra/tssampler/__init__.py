@@ -26,11 +26,9 @@ register_sampler(ideal_source.WhiteSource)
 import platform
 if platform.system() == 'Windows':
     from .audio_win import MicReader
-    register_sampler(MicReader)
     register_sampler(MicReader, 'mic')
 else:
     from .alsa_linux import AlsaAudio
-    register_sampler(AlsaAudio)
     register_sampler(AlsaAudio, 'mic')
 
 try:

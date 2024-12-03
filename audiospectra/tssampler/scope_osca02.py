@@ -318,6 +318,7 @@ def user_volt_calib_data(raw_volt_offset_list = None, raw_volt_scale_list = None
 class OSCA02Reader(tssabc.SampleReader):
     
     sampler_id = 'osca02'
+    device_name = 'LOTO OSCA02'
     frame_byte_size = 2
     _n_frame_discard = 100
 

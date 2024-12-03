@@ -661,17 +661,15 @@ class AnalyzerParameterManager:
         self.last_device = self.current_device
         self.current_device = None
 
-    def load_device(self, device_name):
+    def load_device(self, sampler_id):
         """save current to file, empty current, load to current"""
         if self.current_device is not None:
             self.save_conf_to_file()
             # off-load old conf
             self.empty_current_conf()
         # load new conf
-        if device_name == 'System mic':  # deal with alias
-            device_name = 'mic'
-        self.fill_ana_param_by_dict(self.devices_conf[device_name])
-        self.current_device = device_name
+        self.fill_ana_param_by_dict(self.devices_conf[sampler_id])
+        self.current_device = sampler_id
 
     def fill_ana_param_by_dict(self, conf):
         """conf dict -> ana_param"""
@@ -830,8 +828,11 @@ class AudioSaverManager:
         self.wav_data_queue.put(data_chunk)   # TODO: should we copy the data?
 
     def close(self):
-        if self.wav_writer_thread is not None:
+        if (self.wav_writer_thread is not None) and \
+                self.wav_writer_thread.is_running():
             self.wav_writer_thread.stop()
+            logging.info('Audio saving stopping.')
+            self.wav_writer_thread = None
 
     # TODO: maybe we need a saver manager class
     def start_stop_saving(self):
@@ -931,17 +932,21 @@ class AudioSaverManager:
             self.wav_data_queue, AudioSaver(), wav_saver_conf)
         self.wav_writer_thread.start()
         # check bad file name
-        print('waiting recorder to start...', end='')
+        logging.debug('waiting recorder to start...')
         self.wav_writer_thread._initilized.wait()
-        print('Done.')
         if not self.wav_writer_thread.is_running():
             simple_message_box(f"Failed to open file {self.wav_save_path}.")
             return False
         return True
     
     def stop_audio_saving(self):
+        if (self.wav_writer_thread is None) or \
+            not self.wav_writer_thread.is_running():
+            return
         self.wav_writer_thread.stop()
         self.wav_writer_thread.join()
+        logging.info('Audio saving finished.')
+        self.wav_writer_thread = None
         # pop up a message box saying the file is saved
         #simple_message_box(f"The recording is saved to {self.wav_save_path}.")
     
@@ -960,7 +965,7 @@ class AudioPipeline():
         ## setup data gernerator and analyzer
         # Data flow: mic source -> buf_queue -> process{analyzer, signal to plot}
         self.buf_queue = queue.Queue(ana_param.data_queue_max_size)
-        self.rec_thread = recThread('recorder', self.buf_queue, adc_conf)
+        self.rec_thread = recThread('TSSampler', self.buf_queue, adc_conf)
         # TODO: allow recThread to accept multiple queues (like pipelines) for multiple downstreams
         #       plan two: in sampleChunkThread, we setup another callback for receiving raw data
 
@@ -997,9 +1002,13 @@ class AudioPipeline():
         self.rec_thread.start()
         self.chunk_process_thread.start()
 
-    def close(self, wait = False):
+    def close(self, wait = False, ui_update = True):
         self.rec_thread.b_run = False
         self.chunk_process_thread.b_run = False
+        if ui_update and self.audio_saver_manager.is_rec_on():
+            self.audio_saver_manager.start_stop_saving()
+        else:
+            self.audio_saver_manager.stop_audio_saving()
         if not wait:
             return
         self.rec_thread.join()
@@ -1128,7 +1137,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # connect screenshot button
         ui_dock4.pushButton_screenshot.clicked.connect(self.take_screen_shot)
         # connect device selection comboBox
-        self.on_combobox_dev_refresh()
+        self.on_combobox_dev_refresh(pick_item = 'none')
         self.ui_dock4.comboBox_dev.activated.connect(self.on_combobox_dev_activated)
         # connect sample rate comboBox
         self.ui_dock4.comboBox_sr.activated.connect(self.on_combobox_sr_activated)
@@ -1164,18 +1173,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.elapsed_rms = [1e-3]
         self.elapsed_spam = [1e-3]
 
-        default_device_idx = 0
+        default_device_idx = self.ui_dock4.comboBox_dev.findText('System mic')
         self.on_combobox_dev_activated(default_device_idx)
 
     def stop_data_pipeline(self):
         if self.audio_pipeline.is_device_on():
             self.audio_pipeline.close(wait=True)
-        logging.info('rec stopped')
+            logging.info('stop_data_pipeline(): audio_pipeline stopped')
 
-    def start_data_pipeline(self, dev_name = None):
+    def start_data_pipeline(self, sampler_id = None):
         # start new device
-        if dev_name is not None:
-            self.ana_param_manager.load_device(dev_name)
+        if sampler_id is not None:
+            self.ana_param_manager.load_device(sampler_id)
             self.ana_param_manager.update_to_ui(self.ui_dock4)
         else:
             # assume ana_param is ready (modified in the UI)
@@ -1221,26 +1230,40 @@ class MainWindow(QtWidgets.QMainWindow):
              self.spectrogram_plot.feed_spectrum],
             self.update_request
         )
-        logging.info('rec restarted')
+        logging.info('start_data_pipeline(): done')
 
-    def on_combobox_dev_refresh(self):
+    def on_combobox_dev_refresh(self, pick_item):
         self.ui_dock4.comboBox_dev.clear()
-        self.ui_dock4.comboBox_dev.addItems(self.ana_param_manager.ts_sampler_dict.keys())
-        self.ui_dock4.comboBox_dev.addItem('refresh list')
-        self.ui_dock4.comboBox_dev.addItem('none')
-        self.ui_dock4.comboBox_dev.setCurrentIndex(0)
+        it = [v['device_name']
+              for k, v in self.ana_param_manager.ts_sampler_dict.items()]
+        it += ['refresh list', 'none']
+        self.ui_dock4.comboBox_dev.addItems(it)
+        if isinstance(pick_item, int) and \
+                ((0 <= pick_item) and (pick_item < len(it))):
+            pass  # valid case
+        elif isinstance(pick_item, str) and (pick_item in it):
+            pick_item = it.index(pick_item)
+        else:
+            pick_item = len(it) - 1
+        self.ui_dock4.comboBox_dev.setCurrentIndex(pick_item)
 
     def on_combobox_dev_activated(self, index):
+        self.stop_data_pipeline()
+        assert index >= 0
         dev_name = self.ui_dock4.comboBox_dev.itemText(index)
         logging.info(f'Device: Item[{index}] = "{dev_name}" was selected')
         if dev_name == 'refresh list':
-            return  # TODO
-        if dev_name == 'none':
-            self.stop_data_pipeline()
+            self.ana_param_manager.save_conf_to_file()
+            self.ana_param_manager = AnalyzerParameterManager()
+            self.ana_param = self.ana_param_manager.ana_param
+            self.on_combobox_dev_refresh(pick_item = 'none')
             return
-        self.stop_data_pipeline()
+        if dev_name == 'none':
+            return
+        sid_list = list(self.ana_param_manager.ts_sampler_dict.keys())
+        sid = sid_list[index]
         PopOldEventsAndExecute(
-            lambda: self.start_data_pipeline(dev_name)
+            lambda: self.start_data_pipeline(sid)
         )
 
     def on_combobox_sr_activated(self, index):
@@ -1293,7 +1316,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def start_stop_monitoring(self, checked):
         """checked == False: running, and the button is used to stop the monitoring"""
-        logging.debug(f'start_stop_monitoring: {checked}')
         btn = self.ui_dock4.pushButton_mon
         if checked:
             # stop the monitoring
@@ -1383,9 +1405,7 @@ class MainWindow(QtWidgets.QMainWindow):
             print(f'Audio queue size: {self.audio_pipeline.buf_queue.qsize()}')
 
     def custom_close_event(self, event):
-        # TODO: disable the recorder first
-        self.audio_pipeline.close(wait=False)
-        self.audio_saver_manager.close()
+        self.audio_pipeline.close(wait=False, ui_update=False)
         self.ana_param_manager.save_conf_to_file()
         event.accept()  # Accept the close event
 

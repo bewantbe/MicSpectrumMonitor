@@ -7,6 +7,7 @@ from . import tssabc
 class AlsaAudio(tssabc.SampleReader):
 
     sampler_id = 'alsa'
+    device_name = 'System mic'
 
     def __init__(self):
         # get capabilities
