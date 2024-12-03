@@ -474,7 +474,7 @@ class SpectrogramPlot:
         self.n_ave = analyzer.ave_num
         self.lower_bound_spectrum_db = analyzer.lower_bound_spectrum_dB()
         self.spam_bmp_t_duration_set = spectrogram_duration  # sec
-        self.spam_len = int(self.spam_bmp_t_duration_set / t_hop)
+        self.spam_len = max(int(self.spam_bmp_t_duration_set / t_hop), 1)
         self.spam_bmp_t_duration = self.spam_len * t_hop    # correct the duration
         self.spam_loop_cursor = 0
         if self.log_mode:
@@ -553,60 +553,6 @@ def pretty_num_unit(v, n_prec = 4):
     return st
 
 class AnalyzerParameterManager:
-    def __init__(self, test = True, conf_path = DEFAULT_CONF_FILE):
-        self.ts_sampler_dict = get_all_device_capablity(test = test)
-        self.ana_param = AnalyzerParameters(conf_path = conf_path)
-        self.fill_default_conf()
-
-    def fill_default_conf(self):
-        for ts_sampler_id in self.ts_sampler_dict:
-            conf_default = self.ts_sampler_dict[ts_sampler_id]['default_conf']
-            capability = self.ts_sampler_dict[ts_sampler_id]['capability']
-            if capability is None:
-                continue
-            # correct possible errors in loaded conf
-            if ts_sampler_id not in self.ana_param.devices_conf:
-                self.ana_param.devices_conf[ts_sampler_id] = deepcopy(conf_default)
-                conf_loaded = self.ana_param.devices_conf[ts_sampler_id]
-            else:
-                conf_loaded = self.ana_param.devices_conf[ts_sampler_id]
-                for k, v in conf_default.items():
-                    if k not in conf_loaded:
-                        # fill empty item
-                        conf_loaded[k] = v
-                    else:
-                        # check filled item
-                        if (... not in capability[k]) and \
-                                (conf_loaded[k] not in capability[k]):
-                            conf_loaded[k] = v
-            conf_loaded.update(self.default_ana_view_options)
-            conf_loaded['sampler_id'] = ts_sampler_id
-            conf_loaded['device_name'] = self.ts_sampler_dict[ts_sampler_id]['device_name']
-            conf_loaded['dic_sample_rate'] = {pretty_num_unit(v)+'Hz' : v
-                    for v in capability['sample_rate'] if v is not ...}
-            conf_loaded['channel_selected'] = list(range(conf_loaded['n_channel']))
-            conf_loaded['_adc_conf_keys'] = list(conf_default.keys()) + ['sampler_id']
-
-    def set_fft_len(self, fft_len):
-        p = self.ana_param
-        ratio = p.size_hop / p.size_chunk
-        p.size_chunk = fft_len
-        min_t = 1.0 / 30  # 30 FPS at most
-        min_sp = int(2 ** np.ceil(np.log2(min_t * p.sample_rate)))
-        p.period_size = max(fft_len // 2, min_sp)
-        p.period_size = self.sanitize_param(p.period_size, 'period_size')
-        p.size_hop = int(np.round(fft_len * ratio))
-
-    def sanitize_param(self, val, key):
-        s_id = self.ana_param.sampler_id
-        capk = self.ts_sampler_dict[s_id]['capability'][key]
-        if (... in capk) or (val in capk):
-            return val
-        # find the closest value (higher or equal), if not possible, return the closest value.
-        capk = sorted(capk)
-        idx = np.searchsorted(capk, val)
-        val_cap = capk[min(idx, len(capk)-1)]
-        return val_cap
 
     default_ana_view_options = {
         #"channel_selected" : ...,       # auto
@@ -620,138 +566,6 @@ class AnalyzerParameterManager:
         #"_adc_conf_keys" : ...          # auto
     }
 
-class AnalyzerParameters:
-    def __init__(self, conf_path = DEFAULT_CONF_FILE):
-        self._ana_conf_keys = [
-            'size_chunk', 'size_hop', 'n_ave', 'use_dBA']
-        self.devices_conf = deepcopy(self.devices_conf_default)
-        self.conf_path = conf_path
-        self.current_device = None
-        self.last_device = None
-        self.load_saved_conf()
-
-    def load_saved_conf(self):
-        """load conf from file to namespace"""
-        # Top: during debug, one may skip the loading of the configuration file
-        #if 1:
-        #    return
-        if not os.path.isfile(self.conf_path):
-            logging.info(f'No saved configuration file "{self.conf_path}" found.')
-            return
-        logging.info(f'loading conf from file "{self.conf_path}"')
-        with open(self.conf_path, 'r') as f:
-            d = json.load(f)
-        self.devices_conf.update(d)
-        self.last_device = self.devices_conf["current_device"]
-        # if bad file, remove the conf file
-
-    def dump_self_conf(self):
-        """current namespace to conf, then conf to file"""
-        logging.info(f'dump conf to file "{self.conf_path}"')
-        self.self_to_dict()
-        with open(self.conf_path, 'w') as f:
-            json.dump(self.devices_conf, f, indent=2)
-
-    def load_device(self, device_name):
-        """save current to file, empty current, load to current"""
-        if self.current_device is not None:
-            self.dump_self_conf()
-            # off-load old conf
-            self.do_empty_self()
-        # load new conf
-        if device_name == 'System mic':  # deal with alias
-            device_name = 'mic'
-        self.dict_to_self(self.devices_conf[device_name])
-        self.current_device = device_name
-
-    def do_empty_self(self):
-        """empty current namespace"""
-        d = self.devices_conf[self.current_device]
-        for k in d:
-            if hasattr(self, k):
-                delattr(self, k)
-            else:
-                logging.warning(f'Key "{k}" not found in analyzer parameters'
-                                f'for device "{self.current_device}".')
-        self.last_device = self.current_device
-        self.current_device = None
-
-    def dict_to_self(self, conf):
-        """conf dict -> namespace"""
-        for k, v in conf.items():
-            setattr(self, k, v)
-
-    def self_to_dict(self):
-        # from current namespace to the dict
-        d = self.devices_conf[self.current_device]  # by ref
-        for k in d:
-            if hasattr(self, k):
-                d[k] = getattr(self, k)
-            else:
-                logging.warning(f'Key "{k}" not found in analyzer parameters.')
-        self.devices_conf["current_device"] = self.current_device
-
-    def update_to_ui(self, ui):
-        """update UI from current device conf"""
-        # if we have sampler_id defined, means we are initialized
-        if not hasattr(self, 'sampler_id'):
-            return
-        # current device
-        ui.comboBox_dev.setCurrentText(self.device_name)
-        # sample rates allowed for the device
-        ui.comboBox_sr.clear()
-        ui.comboBox_sr.addItems(self.dic_sample_rate.keys())
-        ui.comboBox_sr.setCurrentText(pretty_num_unit(self.sample_rate) + 'Hz')
-        # channels selected
-        st_chs = ','.join([str(c+1) for c in self.channel_selected])
-        ui.lineEdit_ch.setText(st_chs)
-        # max channel number
-        ui.label_ch.setText(f'Channels (1~{self.n_channel}):')
-        # fft length
-        ui.comboBox_fftlen.setCurrentText(str(self.size_chunk))
-        # averaging number
-        ui.comboBox_nave.setCurrentText(str(self.n_ave))
-
-    def update_channel_by_ui(self, line_edit_ch):
-        #line_edit_ch = self.main_wnd.ui_dock4.lineEdit_ch
-        channel_selected_text = line_edit_ch.text()
-        try:
-            # note: channel index starts from 0 in the code, but starts from 1 in the UI
-            chs = [int(c) - 1 for c in channel_selected_text.split(',')]
-            assert np.all(np.array(chs) < self.n_channel)
-            assert np.all(np.array(chs) >= 0)
-        except (ValueError, AssertionError):
-            # set text box to light-red background
-            line_edit_ch.setStyleSheet("background-color: LightSalmon")
-            return False
-        else:
-            # set normal background
-            line_edit_ch.setStyleSheet("background-color: white")
-        self.channel_selected = chs
-        return True
-
-    def get_adc_conf(self):
-        adc_conf = {}
-        for k in self._adc_conf_keys:
-            adc_conf[k] = getattr(self, k)
-        return adc_conf
-
-    def get_ana_conf(self):
-        ana_conf = {}
-        for k in self._ana_conf_keys:
-            ana_conf[k] = getattr(self, k)
-        return ana_conf
-
-    def render_time_cost_estimation(self):
-        """time cost coefficient for each frame"""
-        # for wave, spectrum and rms
-        t_wave = 2.5  + 1.85e-4 * self.n_channel / 2 * self.size_chunk
-        t_spum = 1.55 + 0.79e-4 * self.n_channel / 2 * self.size_chunk
-        #n_t = self.spectrogram_duration / (self.size_hop / self.sample_rate)
-        t_rms  = 2.95 + 1.15e-4 * self.n_channel / 2 * self.size_chunk
-        t_spam = 2.15 + 0.246e-4 * self.size_chunk
-        return t_wave, t_rms, t_spum, t_spam
-
     devices_conf_default = {
         "mic": {
             # for mic / ADC
@@ -762,7 +576,7 @@ class AnalyzerParameters:
             "n_channel"    : 2,
             "value_format" : 'S16_LE',
             "bit_depth"    : 16,      # assume always S16_LE
-            "periodsize"   : 1024,    # usually half the chunk size
+            "period_size"   : 1024,    # usually half the chunk size
             # allowable values
             "dic_sample_rate" : {    # might be generated
                 '48kHz': 48000,
@@ -794,7 +608,7 @@ class AnalyzerParameters:
             "volt_range"   : [0, 5],
             "value_format" : 'S16_LE', # depends on the range setup
             "bit_depth"    : 16,       # assume always S16_LE
-            "periodsize"   : 4096,
+            "period_size"   : 4096,
             "dic_sample_rate" : {    # might be generated
                 '48kHz' : 48000,
                 '250kHz': 250000,
@@ -821,7 +635,7 @@ class AnalyzerParameters:
             "volt_range"   : 5,
             "value_format" : 'U8',
             "bit_depth"    : 8,
-            "periodsize"   : 64*1024 - 100,  # see also scope_osca02.py
+            "period_size"   : 64*1024 - 100,  # see also scope_osca02.py
             "indicate_discontinuous" : True,
             "dic_sample_rate" : {
                 '100MHz': 100e6,
@@ -841,6 +655,213 @@ class AnalyzerParameters:
                 'indicate_discontinuous'],
         }
     }
+
+    def __init__(self, test = True, conf_path = DEFAULT_CONF_FILE):
+        self.ts_sampler_dict = get_all_device_capablity(test = test)
+        self.devices_conf = deepcopy(self.devices_conf_default)  #TODO make it empty
+        self.current_device = None
+        self.last_device = None
+        self.ana_param = AnalyzerParameters()
+        self.conf_path = conf_path
+        self.load_conf_from_file()
+        self.correct_default_conf()
+
+    def correct_default_conf(self):
+        for ts_sampler_id in self.ts_sampler_dict:
+            conf_default = self.ts_sampler_dict[ts_sampler_id]['default_conf']
+            capability = self.ts_sampler_dict[ts_sampler_id]['capability']
+            if capability is None:
+                continue
+            # correct possible errors in loaded conf
+            if ts_sampler_id not in self.devices_conf:
+                self.devices_conf[ts_sampler_id] = deepcopy(conf_default)
+                conf_loaded = self.devices_conf[ts_sampler_id]
+            else:
+                conf_loaded = self.devices_conf[ts_sampler_id]
+                for k, v in conf_default.items():
+                    if k not in conf_loaded:
+                        # fill empty item
+                        conf_loaded[k] = v
+                    else:
+                        # check filled item
+                        if (... not in capability[k]) and \
+                                (conf_loaded[k] not in capability[k]):
+                            conf_loaded[k] = v
+            conf_loaded.update(self.default_ana_view_options)
+            conf_loaded['sampler_id'] = ts_sampler_id
+            conf_loaded['device_name'] = self.ts_sampler_dict[ts_sampler_id]['device_name']
+            conf_loaded['dic_sample_rate'] = {pretty_num_unit(v)+'Hz' : v
+                    for v in capability['sample_rate'] if v is not ...}
+            conf_loaded['channel_selected'] = list(range(conf_loaded['n_channel']))
+            conf_loaded['_adc_conf_keys'] = list(conf_default.keys()) + ['sampler_id']
+
+    def load_conf_from_file(self):
+        """load conf from file to namespace"""
+        # Top: during debug, one may skip the loading of the configuration file
+        #if 1:
+        #    return
+        if not os.path.isfile(self.conf_path):
+            logging.info(f'No saved configuration file "{self.conf_path}" found.')
+            return
+        logging.info(f'loading conf from file "{self.conf_path}"')
+        with open(self.conf_path, 'r') as f:
+            d = json.load(f)
+        self.devices_conf.update(d)
+        self.last_device = self.devices_conf["current_device"]
+        # if bad file, remove the conf file
+
+    def save_conf_to_file(self):
+        """current namespace to conf, then conf to file"""
+        logging.info(f'dump conf to file "{self.conf_path}"')
+        self.sync_device_dict()
+        with open(self.conf_path, 'w') as f:
+            json.dump(self.devices_conf, f, indent=2)
+
+    def sync_device_dict(self):
+        # from current namespace to the dict
+        d = self.devices_conf[self.current_device]  # by ref
+        for k in d:
+            if hasattr(self.ana_param, k):
+                d[k] = getattr(self.ana_param, k)
+            else:
+                logging.warning(f'Key "{k}" not found in analyzer parameters.')
+        self.devices_conf["current_device"] = self.current_device
+
+    def empty_current_conf(self):
+        """empty current namespace"""
+        d = self.devices_conf[self.current_device]
+        for k in d:
+            if hasattr(self.ana_param, k):
+                delattr(self.ana_param, k)
+            else:
+                logging.warning(f'Key "{k}" not found in analyzer parameters'
+                                f'for device "{self.current_device}".')
+        self.last_device = self.current_device
+        self.current_device = None
+
+    def load_device(self, device_name):
+        """save current to file, empty current, load to current"""
+        if self.current_device is not None:
+            self.save_conf_to_file()
+            # off-load old conf
+            self.empty_current_conf()
+        # load new conf
+        if device_name == 'System mic':  # deal with alias
+            device_name = 'mic'
+        self.fill_ana_param_by_dict(self.devices_conf[device_name])
+        self.current_device = device_name
+
+    def fill_ana_param_by_dict(self, conf):
+        """conf dict -> ana_param"""
+        for k, v in conf.items():
+            setattr(self.ana_param, k, v)
+
+    def set_fft_len(self, fft_len):
+        p = self.ana_param
+        ratio = p.size_hop / p.size_chunk
+        p.size_chunk = fft_len
+        min_t = 1.0 / 30  # 30 FPS at most
+        min_sp = int(2 ** np.ceil(np.log2(min_t * p.sample_rate)))
+        p.period_size = max(fft_len // 2, min_sp)
+        p.period_size = self.sanitize_param(p.period_size, 'period_size')
+        p.size_hop = int(np.round(fft_len * ratio))
+
+    def sanitize_param(self, val, key):
+        s_id = self.ana_param.sampler_id
+        capk = self.ts_sampler_dict[s_id]['capability'][key]
+        if (... in capk) or (val in capk):
+            return val
+        # find the closest value (higher or equal), if not possible, return the closest value.
+        capk = sorted(capk)
+        idx = np.searchsorted(capk, val)
+        val_cap = capk[min(idx, len(capk)-1)]
+        logging.warning(f'Parameter "{key}" is not found in the list, set to {val_cap}.')
+        return val_cap
+
+    def update_to_ui(self, ui):
+        """update UI from current device conf"""
+        p = self.ana_param
+        # if we have sampler_id defined, means we are initialized
+        if (not hasattr(p, 'sampler_id')) or \
+                (p.sampler_id is None):
+            return
+        # current device
+        ui.comboBox_dev.setCurrentText(p.device_name)
+        # sample rates allowed for the device
+        ui.comboBox_sr.clear()
+        ui.comboBox_sr.addItems(p.dic_sample_rate.keys())
+        ui.comboBox_sr.setCurrentText(pretty_num_unit(p.sample_rate) + 'Hz')
+        # channels selected
+        st_chs = ','.join([str(c+1) for c in p.channel_selected])
+        ui.lineEdit_ch.setText(st_chs)
+        # max channel number
+        ui.label_ch.setText(f'Channels (1~{p.n_channel}):')
+        # fft length
+        ui.comboBox_fftlen.setCurrentText(str(p.size_chunk))
+        # averaging number
+        ui.comboBox_nave.setCurrentText(str(p.n_ave))
+
+    def update_channel_by_ui(self, line_edit_ch):
+        #line_edit_ch = self.main_wnd.ui_dock4.lineEdit_ch
+        channel_selected_text = line_edit_ch.text()
+        try:
+            # note: channel index starts from 0 in the code, but starts from 1 in the UI
+            chs = [int(c) - 1 for c in channel_selected_text.split(',')]
+            assert np.all(np.array(chs) < self.ana_param.n_channel)
+            assert np.all(np.array(chs) >= 0)
+        except (ValueError, AssertionError):
+            # set text box to light-red background
+            line_edit_ch.setStyleSheet("background-color: LightSalmon")
+            return False
+        else:
+            # set normal background
+            line_edit_ch.setStyleSheet("background-color: white")
+        self.ana_param.channel_selected = chs
+        return True
+
+class AnalyzerParameters:
+    def __init__(self):
+        # sampler parameters
+        self.sampler_id = None
+        self.device_name = None
+        self.sample_rate = None
+        self.n_channel = None
+        self.period_size = None
+        # pipeline parameters
+        self.channel_selected = None
+        self.data_queue_max_size = None
+        # FFT analyzer parameters
+        self.size_chunk = None
+        self.size_hop = None
+        self.n_ave = None
+        self.spectrogram_duration = None
+        self.use_dBA = None
+        # utilizer parameters
+        self._adc_conf_keys = None
+        self._ana_conf_keys = [
+            'size_chunk', 'size_hop', 'n_ave', 'use_dBA']
+
+    def get_adc_conf(self):
+        adc_conf = {}
+        for k in self._adc_conf_keys:
+            adc_conf[k] = getattr(self, k)
+        return adc_conf
+
+    def get_ana_conf(self):
+        ana_conf = {}
+        for k in self._ana_conf_keys:
+            ana_conf[k] = getattr(self, k)
+        return ana_conf
+
+    def render_time_cost_estimation(self):
+        """time cost coefficient for each frame"""
+        # for wave, spectrum and rms
+        t_wave = 2.5  + 1.85e-4 * self.n_channel / 2 * self.size_chunk
+        t_spum = 1.55 + 0.79e-4 * self.n_channel / 2 * self.size_chunk
+        #n_t = self.spectrogram_duration / (self.size_hop / self.sample_rate)
+        t_rms  = 2.95 + 1.15e-4 * self.n_channel / 2 * self.size_chunk
+        t_spam = 2.15 + 0.246e-4 * self.size_chunk
+        return t_wave, t_rms, t_spum, t_spam
 
 class AudioSaverManager:
     """ Manage the UI related to audio saving and manage wav saver."""
@@ -1232,11 +1253,12 @@ class MainWindow(QtWidgets.QMainWindow):
     def start_data_pipeline(self, dev_name = None):
         # start new device
         if dev_name is not None:
-            self.ana_param.load_device(dev_name)
-            self.ana_param.update_to_ui(self.ui_dock4)
+            self.ana_param_manager.load_device(dev_name)
+            self.ana_param_manager.update_to_ui(self.ui_dock4)
         else:
             # assume ana_param is ready (modified in the UI)
             pass
+        self.ana_param = self.ana_param_manager.ana_param       # just to remind
         self.audio_saver_manager.update_wav_param(self.ana_param)
         self.audio_pipeline.init(self.ana_param)
 
@@ -1312,7 +1334,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def on_lineedit_ch_text_changed(self, text):
         logging.info(f'lineedit_ch_text_changed: {text}')
-        ok = self.ana_param.update_channel_by_ui(self.ui_dock4.lineEdit_ch)
+        ok = self.ana_param_manager.update_channel_by_ui(self.ui_dock4.lineEdit_ch)
         if not ok:
             return
         if not self.audio_pipeline.is_device_on():
@@ -1442,7 +1464,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # TODO: disable the recorder first
         self.audio_pipeline.close(wait=False)
         self.audio_saver_manager.close()
-        self.ana_param.dump_self_conf()
+        self.ana_param_manager.save_conf_to_file()
         event.accept()  # Accept the close event
 
     def take_screen_shot(self):

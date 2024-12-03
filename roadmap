@@ -94,17 +94,26 @@ Targets for v0.6
   - Fix bug about OSCA02 discontinuous sampling adaptation problem. - done
   - Add a mode to show basic statistics to scope_osca02.py. - done
   - Remove debug prints. - done
-  - Q to loto: how to control peripheral device attached to the USB oscilloscope?
   - Q to loto: is it possible to pick buffer size other than 128kB?
+    + No, except for continues mode.
+  - Q to loto: how to control peripheral device attached to the USB oscilloscope?
+    + Not exposed.
   - Q to loto: Support continues sampling mode.  -- need tech support.
+    + need test or more info
   - remove explict ctypes conversion when calling OSCA02 functions.
+* Move ADC parameters to ADC tssampler class.
+  - done
 * get available settings from tssampler, instead from AnalyserParameters.
   - done
 * make default conf have higher priority.
   - done, not necessary, now use tssampler to verify the settings.
 * change var name chunk_size in recorder_gui to fft_chunk_size.
   - done. no need, chunk_size is just fft_len.
+* make AnalyserParameters simple, and move the complex logic to AnalyserParameterManager.
+  -
 * Add waveform sync (trigger) function, and show frequency in it.
+* Allow update device list by using/writing tssampler functions.
+  - such as sine, white noise.
 
 Features under consideration
 ----------------------------
@@ -129,7 +138,6 @@ Target for v0.7 or later
 * rework adc.read(), make it more clear the format of output.
 * Reording tssampler init parameters.
 * add to devices_conf_default from tssampler.
-* Move ADC parameters to ADC tssampler class.
 * Add advanced setting for device parameters.
 * Rename tssamplers.
 * replace print() to log() in record_wave.py
@@ -140,8 +148,6 @@ Target for v0.7 or later
 * Add a time cursor for the spectrogram and RMS
 * Allow choose channels for the spectrogram, such as using a button/list.
 * Colormap for spectrogram.
-* Allow update device list by using/writing tssampler functions.
-  - such as sine, white noise.
 * Spectrogram plot log mode.
 * Add button beside spectrum plot or in the advanced setting to allow user to select normalization mode.
 * Optimize spectrogram speed/cpu
