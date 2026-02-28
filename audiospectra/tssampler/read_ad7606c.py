@@ -12,7 +12,12 @@ import sys
 _cwd_ = os.path.dirname(os.path.abspath(__file__))
 _pyd_ = os.path.join(_cwd_, '..', '..', '..', 'PyAD7606C')
 sys.path.append(_pyd_)
-from M3F20xm import M3F20xmADC, dbg_print
+try:
+    from M3F20xm import M3F20xmADC, dbg_print
+except (ImportError, OSError) as e:
+    raise ImportError(
+        f"PyAD7606C backend is unavailable (missing DLL/dependency?): {e}"
+    ) from e
 
 class AD7606CReader(tssabc.SampleReader):
     sampler_id = 'ad7606c'

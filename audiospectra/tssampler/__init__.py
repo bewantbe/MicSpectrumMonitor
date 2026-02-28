@@ -33,14 +33,14 @@ else:
 
 try:
     from .read_ad7606c import AD7606CReader
-except ImportError:
-    logging.warning('AD7606C reader is not available')
+except (ImportError, OSError) as e:
+    logging.warning('AD7606C reader is not available: %s', e)
 else:
     register_sampler(AD7606CReader)
 
 try:
     from .scope_osca02 import OSCA02Reader
-except ImportError:
-    logging.warning('OSCA02 reader is not available')
+except (ImportError, OSError) as e:
+    logging.warning('OSCA02 reader is not available: %s', e)
 else:
     register_sampler(OSCA02Reader)
