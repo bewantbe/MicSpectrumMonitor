@@ -27,6 +27,17 @@ cd DIRECTORY_TO_THE_SOURCE_CODE
 pip install -r requirements.txt
 ```
 
+In case the python version is too new, or binary wheels are not available, 
+you may need to run the following command in compilation mode, such as in
+"x64 Native Tools Command Prompt for VS 2022"
+
+```
+pip install setuptools
+pip install pyaudio -i https://pypi.org/simple
+pip install PyQt6 -i https://pypi.org/simple --config-settings --confirm-license= --verbose
+pip install -r requirements.txt
+```
+
 Note that in Linux, you may want to install ALSA version of the audio lib.
 
 ```

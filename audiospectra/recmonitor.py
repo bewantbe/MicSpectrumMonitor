@@ -242,3 +242,20 @@ class overrunChecker:
     def getSampleRate(self):
         return self.sample_rate_est
 
+class TimeRateEstimator:
+    def __init__(self, item_name):
+        self.update_time_interval = 2.0
+        self.item_name = item_name
+        self.t_last = time.time()
+        self.count = 0
+        self.count_last = 0
+    
+    def notify(self):
+        self.count += 1
+        t = time.time()
+        dt = t - self.t_last
+        if dt > self.update_time_interval:
+            print("  %s rate = %.2f Hz" % \
+                (self.item_name, (self.count-self.count_last) / dt))
+            self.t_last = t
+            self.count_last = self.count

@@ -58,6 +58,7 @@ from .record_wave import (
     analyzerData,
     FPSLimiter
 )
+from .recmonitor import TimeRateEstimator
 from .tssampler import get_all_device_capablity
 from .control_pannel import Ui_Dock4  # TODO: change "from PyQt6" to "from pyqtgraph.Qt"
 
@@ -1095,6 +1096,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fps_limiter = FPSLimiter(60)
         self.fps_limiter_wave = FPSLimiter(30)
         self.fps_limiter_fft  = FPSLimiter(30)
+        self.fps_est_ui  = TimeRateEstimator('UI Update')
+        self.fps_est_req = TimeRateEstimator('Update req')
 
         ## Add widgets into each dock
 
@@ -1332,12 +1335,14 @@ class MainWindow(QtWidgets.QMainWindow):
         """Called from other thread"""
         if not self.b_monitor_on:
             return
+        self.fps_est_req.notify()
         if self.fps_limiter.checkFPSAllow():
             # signal main thread to call update_graph
             self.graph_data_updated.emit(obj)
 
     # TODO: annotate callbacks using decorator
     def update_graph(self, obj):
+        self.fps_est_ui.notify()
         # must be called in main thread
         rms_db, volt, fqs, spectrum_db = obj
         # ploting

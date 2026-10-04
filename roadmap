@@ -101,6 +101,8 @@ Targets for v0.6
   - Q to loto: Support continues sampling mode.  -- need tech support.
     + need test or more info
   - remove explict ctypes conversion when calling OSCA02 functions.
+    - delayed
+  - fix bug: 100MHz sampling is slow.
 * Move ADC parameters to ADC tssampler class.
   - done
 * get available settings from tssampler, instead from AnalyserParameters.
@@ -111,15 +113,19 @@ Targets for v0.6
   - done. no need, chunk_size is just fft_len.
 * make AnalyserParameters simple, and move the complex logic to AnalyserParameterManager.
   - done.
+* Allow update device list
+  - done.
 * Add waveform sync (trigger) function, and show frequency in it.
-* Allow update device list by using/writing tssampler functions.
-  - such as sine, white noise.
+  - 
+* auto peak detection.
+* add icon
 
 Features under consideration
 ----------------------------
 
 Target for v0.7 or later
 
+* Make UI adapt its size automatically (like button size by text length), adapt different DPI.
 * rework fftlen update logic.
 * interpolation to the spectrum curve when zoomed.
 * bug: sine wave no show RMS.
@@ -133,17 +139,14 @@ Target for v0.7 or later
 * Add Copyright etc in the GUI.
 * Slightly higher the spectrum lower bound.
 * Able to load calibration file by a button.
-* auto peak detection.
 * rework the drop down list.
 * rework adc.read(), make it more clear the format of output.
 * Reording tssampler init parameters.
-* add to devices_conf_default from tssampler.
 * Add advanced setting for device parameters.
 * Rename tssamplers.
 * replace print() to log() in record_wave.py
 * Use true multi-thread (such as Qt thread) for recorder and STFT analyzer.
 * Clearn up logging and dbg_print and print.
-* Make UI adapt its size automatically (like button size by text length), adapt different DPI.
 * Faster recover time for the adaptive fps limiter, or modify its logic.
 * Add a time cursor for the spectrogram and RMS
 * Allow choose channels for the spectrogram, such as using a button/list.

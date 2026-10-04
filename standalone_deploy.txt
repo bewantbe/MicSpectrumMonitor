@@ -23,11 +23,13 @@ wget https://bootstrap.pypa.io/get-pip.py -O get-pip.py
 
 # install pip
 ./python.exe get-pip.py
-
+./python.exe -m pip install setuptools
+./python.exe -m pip install --upgrade wheel
+./python.exe -m pip install --upgrade python
 
 ##4. install dependences
 ./python.exe -m pip install -r 'requirements.txt'
-
+#might need to run in 'Developer Command Prompt'
 
 ##5. Insert customized modules
 

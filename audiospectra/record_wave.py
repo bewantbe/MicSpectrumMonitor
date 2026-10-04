@@ -318,7 +318,7 @@ class FPSLimiter:
             if time_now > self.time_to_refresh:
                 self.time_to_refresh = time_now + 1.0 / self.rate_user
             self.f_allowed += 1
-            return True
+        return True
 
     def notifyRenderFinished(self):
         with self.lock:
