@@ -1177,6 +1177,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.elapsed_spam = [1e-3]
 
         default_device_idx = self.ui_dock4.comboBox_dev.findText('System mic')
+        if default_device_idx < 0:
+            logging.warning("'System mic' not found, defaulting to the first available device.")
+            default_device_idx = 0
         self.on_combobox_dev_activated(default_device_idx)
 
     def stop_data_pipeline(self):

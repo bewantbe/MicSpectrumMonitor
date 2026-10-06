@@ -20,13 +20,14 @@ class MicReader(tssabc.SampleReader):
         pya = pyaudio.PyAudio()
         device_info = pya.get_default_input_device_info()
         device_index = device_info['index']
+        max_ch = max(1, min(2, int(device_info['maxInputChannels'])))
         common_rates = [8000, 11025, 16000, 22050, 32000, 44100, 48000, 96000, 192000]
         for rate in common_rates:
             try:
                 if pya.is_format_supported(
                         rate,
                         input_device=device_index,
-                        input_channels=2,
+                        input_channels=max_ch,
                         input_format=pyaudio.paInt16):
                     supported_rates.append(rate)
             except ValueError:
@@ -37,7 +38,7 @@ class MicReader(tssabc.SampleReader):
         self.capability = {
             'sample_format': ['S16_LE'],
             'sample_rate': supported_rates,
-            'n_channel': [2, 1],
+            'n_channel': [2, 1][-max_ch:],
             'period_size': [1024, ...],
             'device': ['default', ...]
         }

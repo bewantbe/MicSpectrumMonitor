@@ -10,3 +10,5 @@ USB_DaqsB.log
 .analyzer.conf
 
 *OSC*.dll
+
+/python-3.*-embed-win32
