@@ -6,6 +6,7 @@
 # Usage:
 #   # cd to Root directory of this project
 #   python -m audiospectra
+#   python -m audiospectra --show-update-rates
 # Or:
 #   # cd audiospectra/
 #   python recorder_gui.py
@@ -20,8 +21,10 @@
 import os
 import shutil
 import json
+import argparse
 import datetime
 import time
+import sys
 from time import perf_counter
 from copy import deepcopy
 import array
@@ -1064,9 +1067,11 @@ class MainWindow(QtWidgets.QMainWindow):
     # See also pyqtgraph's example console_exception_inspection.py.
     graph_data_updated = pg.QtCore.Signal(object)
 
-    def __init__(self, *args, qapp, **kwargs):
+    def __init__(self, *args, qapp, args_parsed, **kwargs):
+        # *args/**kwargs are forwarded to QMainWindow (parent, flags)
         super(MainWindow, self).__init__(*args, **kwargs)
         self.qapp = qapp
+        self.args_parsed = args_parsed
 
         ## setup window
         area = DockArea()
@@ -1096,8 +1101,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fps_limiter = FPSLimiter(60)
         self.fps_limiter_wave = FPSLimiter(30)
         self.fps_limiter_fft  = FPSLimiter(30)
-        self.fps_est_ui  = TimeRateEstimator('UI Update')
-        self.fps_est_req = TimeRateEstimator('Update req')
+        if self.args_parsed.show_update_rates:
+            self.fps_est_ui = TimeRateEstimator('UI Update')
+            self.fps_est_req = TimeRateEstimator('Update req')
+        else:
+            self.fps_est_ui = _NoopTimeRateEstimator()
+            self.fps_est_req = _NoopTimeRateEstimator()
 
         ## Add widgets into each dock
 
@@ -1427,6 +1436,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
 _t0 = None
 
+class _NoopTimeRateEstimator:
+    def notify(self):
+        pass
+
 def tic():
     global _t0
     #_t0 = time.process_time_ns() / 1e9
@@ -1441,9 +1454,23 @@ def toc(s = None):
         print(f'time = {t:.6f} s, ({s})')
     return t
 
-def main():
+def parse_cli_args(argv = None):
+    parser = argparse.ArgumentParser(
+        prog = 'audiospectra',
+        description = 'GUI audio spectrum monitor and recorder'
+    )
+    parser.add_argument(
+        '--show-update-rates',
+        action = 'store_true',
+        default = False,
+        help = 'Show periodic "Update req rate" and "UI Update rate" logs'
+    )
+    return parser.parse_known_args(argv)
+
+def main(argv = None):
+    args, _unused = parse_cli_args(sys.argv[1:] if argv is None else argv)
     app = pg.mkQApp("Spectrum Analyzer - docked plots")
-    main_window = MainWindow(qapp = app)
+    main_window = MainWindow(qapp = app, args_parsed = args)
     pg.exec()
 
 if __name__ == '__main__':
