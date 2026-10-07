@@ -60,7 +60,7 @@ from .record_wave import (
 )
 from .recmonitor import TimeRateEstimator
 from .tssampler import get_all_device_capablity
-from .control_pannel import Ui_Dock4  # TODO: change "from PyQt6" to "from pyqtgraph.Qt"
+from .control_pannel import Ui_Dock4
 
 DEFAULT_CONF_FILE = '.analyzer.conf'
 
